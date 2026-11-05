@@ -82,6 +82,14 @@ Render, Web Service no plano gratuito, **região fora dos EUA** (Frankfurt). Ver
 Variáveis a cadastrar: `NODE_VERSION=22` (obrigatória) e `CORS_ORIGINS` com a
 URL do front publicado. **Não** cadastre `PORT`: o Render define sozinho.
 
+> **`NODE_VERSION=22` não é opcional.** Sem ela o Render cai no padrão antigo
+> (Node 14), o Express 5 não carrega e o deploy quebra no `npm start`. O projeto
+> agora acusa isso de duas formas: `.npmrc` com `engine-strict=true` faz o
+> `npm install` falhar na hora com "Unsupported engine", e
+> `src/config/checkNode.js` imprime a versão encontrada e o que fazer. Depois de
+> cadastrar a variável, use **Manual Deploy → Clear build cache & deploy**: o
+> build em cache pode continuar usando o Node antigo.
+
 Depois do deploy, teste as duas:
 
 ```powershell

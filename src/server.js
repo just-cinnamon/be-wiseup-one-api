@@ -1,3 +1,6 @@
+// Primeiro import de propósito: confere a versão do Node antes de carregar o
+// Express, que não funciona em versões antigas.
+import './config/checkNode.js';
 import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { createCache } from './services/cache.js';

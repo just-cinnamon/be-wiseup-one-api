@@ -82,13 +82,30 @@ Render, Web Service no plano gratuito, **região fora dos EUA** (Frankfurt). Ver
 Variáveis a cadastrar: `NODE_VERSION=22` (obrigatória) e `CORS_ORIGINS` com a
 URL do front publicado. **Não** cadastre `PORT`: o Render define sozinho.
 
-> **`NODE_VERSION=22` não é opcional.** Sem ela o Render cai no padrão antigo
-> (Node 14), o Express 5 não carrega e o deploy quebra no `npm start`. O projeto
-> agora acusa isso de duas formas: `.npmrc` com `engine-strict=true` faz o
-> `npm install` falhar na hora com "Unsupported engine", e
-> `src/config/checkNode.js` imprime a versão encontrada e o que fazer. Depois de
-> cadastrar a variável, use **Manual Deploy → Clear build cache & deploy**: o
-> build em cache pode continuar usando o Node antigo.
+### Sobre a versão do Node no Render
+
+O Render resolve a versão nesta ordem de precedência:
+
+1. variável de ambiente `NODE_VERSION`
+2. arquivo `.node-version` ← **é o que este repositório usa** (`22`)
+3. arquivo `.nvmrc`
+4. `engines` do `package.json`
+
+Como o `.node-version` está versionado, **`NODE_VERSION` é dispensável**. Se você
+cadastrar a variável, ela sobrepõe o arquivo — e um valor errado quebra o deploy
+sem aviso: no primeiro deploy deste projeto, `NODE_VERSION=12` fez o Render usar
+Node 12.22.12 e o build falhou. Na dúvida, não cadastre a variável.
+
+Se o build falhar por versão, a mensagem é explícita, por conta do
+`engine-strict=true` do `.npmrc`:
+
+```
+npm ERR! notsup Unsupported engine for be-wiseup-one-api@0.1.0:
+          wanted: {"node":">=22.9"} (current: {"node":"12.22.12","npm":"6.14.16"})
+```
+
+E se um Node antigo chegar ao `npm start`, `src/config/checkNode.js` imprime a
+versão encontrada e o que fazer.
 
 Depois do deploy, teste as duas:
 

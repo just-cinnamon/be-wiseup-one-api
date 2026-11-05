@@ -25,6 +25,7 @@ vencido quando a API externa falha, ou por que o banner da Home fica borrado.
 | [0009](0009-miniaturas-320x180.md) | Aceitar miniaturas de 320x180 como limite da API | Aceita | 2026-11-05 |
 | [0010](0010-deploy-no-render-fora-dos-eua.md) | Deploy no Render, em região fora dos Estados Unidos | Aceita | 2026-11-05 |
 | [0011](0011-contas-em-sqlite-limitando-a-0004.md) | Guardar contas em SQLite, limitando a ADR-0004 | Aceita | 2026-11-05 |
+| [0012](0012-catalogo-exige-sessao.md) | O catálogo só responde com sessão, e o app não sobe sem autenticação | Aceita | 2026-11-05 |
 
 ## Como criar uma nova ADR
 

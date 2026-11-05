@@ -1,17 +1,45 @@
 import { Router } from 'express';
+import { createRequireAuth } from '../http/requireAuth.js';
 import { createAuthRoutes } from './auth.js';
 
-/** Todas as rotas da API, montadas em /api. */
+/**
+ * Todas as rotas da API, montadas em /api.
+ *
+ * **A ordem aqui é a defesa** (ADR-0012): `/health` e `/auth` ficam abertos, e
+ * tudo registrado depois do `requireAuth` exige sessão. Enquanto o catálogo
+ * era público, o login do front não barrava ninguém — bastava chamar
+ * `GET /api/home` direto para receber conteúdo +18 sem conta nenhuma.
+ */
 export function createRoutes({ videosService, authService }) {
-  const router = Router();
+  // Fail-closed: sem `authService` não há como exigir sessão. A resposta certa
+  // é não subir, em vez de servir o catálogo para todo mundo.
+  if (!authService) {
+    throw new Error(
+      'createRoutes exige authService: sem ele as rotas de catálogo ficariam abertas.'
+    );
+  }
 
-  // Respostas de lista podem ser guardadas pelo navegador por 5 minutos.
+  const router = Router();
+  const requireAuth = createRequireAuth({ authService });
+
+  // `private`, não `public`: a resposta passou a depender de quem pediu, e
+  // nenhum intermediário (CDN, proxy do provedor) pode guardar uma cópia para
+  // entregar a outra pessoa. O navegador de quem pediu continua guardando.
   const cacheFor = (seconds) => (req, res, next) => {
-    res.set('Cache-Control', `public, max-age=${seconds}`);
+    res.set('Cache-Control', `private, max-age=${seconds}`);
     next();
   };
 
+  // Aberta de propósito: é o que o provedor consulta para saber se o processo
+  // está de pé, e não devolve dado nenhum.
   router.get('/health', (req, res) => res.json({ status: 'ok' }));
+
+  // Também aberta, por necessidade: é por aqui que se consegue a sessão. Estas
+  // rotas trazem o próprio Cache-Control: no-store, posto em app.js.
+  router.use('/auth', createAuthRoutes({ authService }));
+
+  // ---- Daqui para baixo, só com sessão válida. ----
+  router.use(requireAuth);
 
   router.get('/home', cacheFor(300), async (req, res) => {
     res.json(await videosService.getHome());
@@ -28,10 +56,6 @@ export function createRoutes({ videosService, authService }) {
   router.get('/categories', cacheFor(86400), async (req, res) => {
     res.json(await videosService.getCategories());
   });
-
-  // Autenticação (ADR-0011). Estas rotas trazem o próprio Cache-Control:
-  // no-store, em vez do max-age das listas.
-  if (authService) router.use('/auth', createAuthRoutes({ authService }));
 
   return router;
 }

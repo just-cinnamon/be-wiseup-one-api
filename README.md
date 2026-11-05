@@ -175,7 +175,26 @@ docs/
 - **ADRs 0001 a 0010** criadas em `docs/adr/`, registrando as decisões que o guia
   de criação tomou sem explicar o porquê.
 
+### 05/11/2026 — No ar no Render
+Publicado em <https://be-wiseup-one-api.onrender.com/api>.
+
+- O primeiro deploy falhou: `NODE_VERSION` estava com `12` (não `22`), o Render
+  usou Node 12.22.12 e o Express 5 não carrega. Corrigido no dashboard.
+- Para o erro não voltar a ser cru, entraram `.npmrc` com `engine-strict=true`
+  (o `npm install` falha com "Unsupported engine"), `src/config/checkNode.js`
+  (primeiro import do `server.js`, imprime a versão encontrada) e
+  `.node-version` com `22`, que tem precedência acima do `.nvmrc` — assim o
+  deploy não depende mais de variável cadastrada à mão.
+- Verificado em produção: `/api/health`, `/api/categories` (243 itens),
+  `/api/home` (destaque + Top 10 + 6 fileiras com 30 itens cada), busca,
+  `400 INVALID_PARAMS`, `404 ROUTE_NOT_FOUND` e CORS.
+- `/api/home` respondeu em **2,1s** na primeira chamada e **0,27s** na segunda:
+  o cache em memória está funcionando em produção.
+- **Sem bloqueio por região**: `/api/categories` respondeu normalmente, o que era
+  o maior risco do deploy (ver [ADR-0010](docs/adr/0010-deploy-no-render-fora-dos-eua.md)).
+
 ### Próximos passos
-- Deploy no Render (seção "Deploy") e `CORS_ORIGINS` com a URL do front.
+- `CORS_ORIGINS` com a URL do front quando ele for publicado (hoje só
+  `http://localhost:5173`).
 - Integração no front: `VITE_API_BASE_URL`, `src/services/api.js` e `Home.jsx`
   consumindo `getHome()`.

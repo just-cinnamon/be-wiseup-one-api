@@ -17,3 +17,22 @@ export const upstreamTimeout = () =>
   new AppError(504, 'UPSTREAM_TIMEOUT', 'O serviço de vídeos demorou para responder.');
 export const upstreamUnavailable = () =>
   new AppError(502, 'UPSTREAM_UNAVAILABLE', 'Não foi possível carregar os vídeos agora.');
+
+// Autenticação (ADR-0011).
+
+/** Mensagem única de propósito: não revela se o e-mail existe. */
+export const invalidCredentials = () =>
+  new AppError(401, 'INVALID_CREDENTIALS', 'E-mail ou senha incorretos.');
+
+export const tooManyAttempts = (minutes) =>
+  new AppError(
+    429,
+    'TOO_MANY_ATTEMPTS',
+    `Muitas tentativas de login. Tente novamente em ${minutes} minutos.`
+  );
+
+export const captchaFailed = () =>
+  new AppError(400, 'CAPTCHA_FAILED', 'Confirme que você não é um robô e tente de novo.');
+
+export const unauthorized = (message = 'Sessão expirada. Entre novamente.') =>
+  new AppError(401, 'UNAUTHORIZED', message);

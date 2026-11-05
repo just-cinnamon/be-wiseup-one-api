@@ -1,6 +1,9 @@
 # ADR-0004 — Não armazenar nada: só cache em memória, que devolve dado velho no erro
 
-- **Status:** aceita
+- **Status:** aceita, **substituída parcialmente** por
+  [ADR-0011](0011-contas-em-sqlite-limitando-a-0004.md) — continua valendo para
+  catálogo, mídia e histórico de uso; deixa de valer para credenciais, que
+  passam a ficar em SQLite
 - **Data:** 2026-11-05
 - **Fase do projeto:** Fase 4 — Integração com a API
 

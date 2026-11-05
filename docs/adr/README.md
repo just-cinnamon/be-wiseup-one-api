@@ -7,8 +7,8 @@ contexto**, **o que foi decidido** e **as consequências** daquela escolha.
 Mesma prática do front
 ([ADRs do be-wiseup-one](https://github.com/just-cinnamon/be-wiseup-one/tree/main/docs/adr)),
 com numeração própria. A ideia é que ninguém precise adivinhar por que este
-projeto não tem banco de dados, por que o cache devolve dado vencido quando a API
-externa falha, ou por que o banner da Home fica borrado.
+projeto guarda conta mas não guarda catálogo, por que o cache devolve dado
+vencido quando a API externa falha, ou por que o banner da Home fica borrado.
 
 ## Índice
 
@@ -24,6 +24,7 @@ externa falha, ou por que o banner da Home fica borrado.
 | [0008](0008-fixtures-com-respostas-reais.md) | Fixtures com respostas reais da API externa | Aceita | 2026-11-05 |
 | [0009](0009-miniaturas-320x180.md) | Aceitar miniaturas de 320x180 como limite da API | Aceita | 2026-11-05 |
 | [0010](0010-deploy-no-render-fora-dos-eua.md) | Deploy no Render, em região fora dos Estados Unidos | Aceita | 2026-11-05 |
+| [0011](0011-contas-em-sqlite-limitando-a-0004.md) | Guardar contas em SQLite, limitando a ADR-0004 | Aceita | 2026-11-05 |
 
 ## Como criar uma nova ADR
 

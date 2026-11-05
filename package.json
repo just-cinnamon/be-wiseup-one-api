@@ -7,9 +7,9 @@
     "node": ">=22.9"
   },
   "scripts": {
-    "dev": "node --watch --env-file-if-exists=.env src/server.js",
-    "start": "node src/server.js",
-    "test": "node --test test/*.test.js",
+    "dev": "node --watch --experimental-sqlite --env-file-if-exists=.env src/server.js",
+    "start": "node --experimental-sqlite src/server.js",
+    "test": "node --test --experimental-sqlite test/*.test.js",
     "lint": "eslint .",
     "format": "prettier --write \"{src,test}/**/*.js\""
   },

@@ -18,3 +18,9 @@ Thumbs.db
 !.vscode/extensions.json
 !.vscode/settings.json
 *.local
+
+# Banco de contas (ADR-0011): fica fora do versionamento, inclusive o WAL
+data/
+*.db
+*.db-shm
+*.db-wal

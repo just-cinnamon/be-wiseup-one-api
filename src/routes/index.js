@@ -1,7 +1,8 @@
 import { Router } from 'express';
+import { createAuthRoutes } from './auth.js';
 
 /** Todas as rotas da API, montadas em /api. */
-export function createRoutes({ videosService }) {
+export function createRoutes({ videosService, authService }) {
   const router = Router();
 
   // Respostas de lista podem ser guardadas pelo navegador por 5 minutos.
@@ -27,6 +28,10 @@ export function createRoutes({ videosService }) {
   router.get('/categories', cacheFor(86400), async (req, res) => {
     res.json(await videosService.getCategories());
   });
+
+  // Autenticação (ADR-0011). Estas rotas trazem o próprio Cache-Control:
+  // no-store, em vez do max-age das listas.
+  if (authService) router.use('/auth', createAuthRoutes({ authService }));
 
   return router;
 }

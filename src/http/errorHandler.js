@@ -15,6 +15,24 @@ export function errorHandler(error, req, res, _next) {
       .status(error.status)
       .json({ error: { code: error.code, message: error.message } });
   }
+  // Erros do express.json (corpo das rotas de /api/auth). Sem este trecho, um
+  // JSON malformado viraria 500 e quebraria o contrato de erro da ADR-0007.
+  if (error.type === 'entity.parse.failed') {
+    return res.status(400).json({
+      error: {
+        code: 'INVALID_PARAMS',
+        message: 'O corpo da requisição não é um JSON válido.',
+      },
+    });
+  }
+  if (error.type === 'entity.too.large') {
+    return res.status(413).json({
+      error: {
+        code: 'PAYLOAD_TOO_LARGE',
+        message: 'O corpo da requisição é grande demais.',
+      },
+    });
+  }
   console.error(error);
   return res
     .status(500)

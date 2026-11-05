@@ -1,6 +1,9 @@
 # ADR-0007 — Formato único de erro e validação por lista de valores permitidos
 
-- **Status:** aceita
+- **Status:** aceita, com a parte "Só `GET` existe" **substituída parcialmente**
+  por [ADR-0011](0011-contas-em-sqlite-limitando-a-0004.md) — as rotas de
+  `/api/auth` usam `POST` e `DELETE`, e a tabela de erros ganhou quatro códigos;
+  o resto segue valendo
 - **Data:** 2026-11-05
 - **Fase do projeto:** Fase 4 — Integração com a API
 

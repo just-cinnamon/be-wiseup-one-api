@@ -1,0 +1,20 @@
+# Dependências (mesma decisão do front: node_modules e package-lock fora do versionamento)
+node_modules/
+package-lock.json
+
+# Variáveis de ambiente
+.env
+.env.*
+!.env.example
+
+# Logs e sistema
+*.log
+.DS_Store
+Thumbs.db
+
+# Editor (mesma decisão do front)
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.local

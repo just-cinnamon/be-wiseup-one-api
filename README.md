@@ -509,8 +509,14 @@ requisições (`req.rawBody`): ele existia só para conferir a assinatura do
 webhook. Sem webhook, guardar o corpo cru de toda requisição seria peso e
 superfície de graça.
 
-- 98 testes passando, 18 pulados (SQL, com `TEST_DATABASE_URL`), `npx eslint .`
+- 98 testes passando, 21 pulados (SQL, com `TEST_DATABASE_URL`), `npx eslint .`
   limpo.
+- Três testes de SQL novos em `usersService.test.js`, pulados como os outros 18
+  até existir `TEST_DATABASE_URL`: a declaração gravando data/meio/IP, o clique
+  único gravando as duas metades na mesma transação (e versão nova dos
+  documentos pedindo aceite sem pedir declaração), e um que varre o
+  `information_schema` para falhar se aparecer coluna de documento, foto, CPF ou
+  data de nascimento.
 - **O custo, escrito onde não dá para não ver:** autodeclaração não verifica
   nada. Qualquer menor de idade entra marcando a caixa. A proteção que resta é o
   aviso claro, a declaração registrada, o catálogo fechado por sessão
@@ -534,7 +540,7 @@ eles, ninguém entra em produção.
 3. **Marcar `is_admin`** para alguma conta, à mão no banco — sem isso a fila de
    denúncias não tem quem a olhe.
 4. Rodar os testes de SQL contra um Postgres de verdade
-   (`TEST_DATABASE_URL=... npm test`): são 18 testes que nunca rodaram aqui.
+   (`TEST_DATABASE_URL=... npm test`): são 21 testes que nunca rodaram aqui.
 5. `CORS_ORIGINS` com a URL do front quando ele for publicado (hoje só
    `http://localhost:5173`).
 6. **Captcha (opcional, ADR-0014):** registrar o site em

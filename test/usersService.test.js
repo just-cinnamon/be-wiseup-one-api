@@ -311,3 +311,107 @@ test('a faxina apaga só o que passou do prazo', { skip }, async () => {
 
   await db.query(`DELETE FROM access_logs WHERE user_id = $1`, [id]);
 });
+
+test('a declaração de maioridade grava data, meio e IP', { skip }, async () => {
+  const users = createUsersService({ db: await abrir() });
+  const { id } = await users.create({
+    email: email('ines'),
+    passwordHash: 'scrypt$fake',
+    createdAt: AGORA,
+  });
+
+  // Conta nova não declarou nada: campo nulo significa "não" (ADR-0019).
+  const antes = await users.findById(id);
+  assert.equal(antes.age_verified_at, null);
+  assert.equal(antes.age_method, null);
+  assert.equal(antes.age_declared_ip, null);
+
+  assert.equal(
+    await users.declareAdult({ userId: id, declaredAt: AGORA, ip: '203.0.113.9' }),
+    true
+  );
+
+  const depois = await users.findById(id);
+  assert.equal(depois.age_verified_at, AGORA);
+  assert.equal(depois.age_method, 'autodeclaracao');
+  assert.equal(depois.age_declared_ip, '203.0.113.9');
+
+  // Declarar de novo não reescreve nada e avisa que não gravou: a declaração
+  // que vale é a primeira, porque é a que a pessoa fez.
+  assert.equal(
+    await users.declareAdult({
+      userId: id,
+      declaredAt: '2027-01-01T00:00:00.000Z',
+      ip: '198.51.100.4',
+    }),
+    false
+  );
+  const terceira = await users.findById(id);
+  assert.equal(terceira.age_verified_at, AGORA);
+  assert.equal(terceira.age_declared_ip, '203.0.113.9');
+});
+
+test('um clique declara a idade e aceita os dois documentos', { skip }, async () => {
+  const users = createUsersService({ db: await abrir() });
+  const { id } = await users.create({
+    email: email('joao'),
+    passwordHash: 'scrypt$fake',
+    createdAt: AGORA,
+  });
+
+  const versions = { termos: '2026-11-05', privacidade: '2026-11-05' };
+  const r = await users.declareAdultAndAcceptTerms({
+    userId: id,
+    ip: '203.0.113.9',
+    at: AGORA,
+    versions,
+  });
+  assert.equal(r.at, AGORA);
+
+  // As duas metades caem na mesma transação: ou as duas, ou nenhuma.
+  const conta = await users.findById(id);
+  assert.equal(conta.age_verified_at, AGORA);
+  assert.equal(conta.age_method, 'autodeclaracao');
+  const aceites = await users.listAcceptances(id);
+  assert.equal(aceites.length, 2);
+  assert.deepEqual(aceites.map((a) => a.document).sort(), ['privacidade', 'termos']);
+
+  // Clicar duas vezes não duplica aceite nem reescreve a declaração.
+  await users.declareAdultAndAcceptTerms({
+    userId: id,
+    ip: '198.51.100.4',
+    at: '2027-01-01T00:00:00.000Z',
+    versions,
+  });
+  assert.equal((await users.listAcceptances(id)).length, 2);
+  const conta2 = await users.findById(id);
+  assert.equal(conta2.age_verified_at, AGORA);
+  assert.equal(conta2.age_declared_ip, '203.0.113.9');
+
+  // Versão nova dos documentos: aceite novo, sem pedir a declaração outra vez.
+  await users.declareAdultAndAcceptTerms({
+    userId: id,
+    ip: '203.0.113.9',
+    at: '2027-02-01T00:00:00.000Z',
+    versions: { termos: '2027-02-01', privacidade: '2027-02-01' },
+  });
+  assert.equal((await users.listAcceptances(id)).length, 4);
+  assert.equal((await users.findById(id)).age_verified_at, AGORA);
+});
+
+test('não existe coluna de documento, foto, CPF ou nascimento', { skip }, async () => {
+  const banco = await abrir();
+  const { rows } = await banco.query(
+    `SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'users'`
+  );
+  const nomes = rows.map((r) => r.column_name);
+  // O que a ADR-0019 decidiu **não** guardar. Este teste é a decisão escrita
+  // de um jeito que falha: se alguém acrescentar a coluna, o `npm test` avisa.
+  const proibidos = nomes.filter((n) =>
+    /documento|document_|foto|selfie|cpf|birth|nascimento/i.test(n)
+  );
+  assert.deepEqual(proibidos, []);
+  assert.ok(nomes.includes('age_verified_at'));
+  assert.ok(nomes.includes('age_declared_ip'));
+});

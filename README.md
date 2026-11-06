@@ -26,13 +26,14 @@ Teste: `curl.exe http://localhost:3333/api/health` → `{"status":"ok"}`
 
 ## Scripts
 
-| Comando          | O que faz                                          |
-| ---------------- | -------------------------------------------------- |
-| `npm run dev`    | Sobe o servidor e reinicia ao salvar (lê o `.env`) |
-| `npm start`      | Sobe o servidor (produção)                         |
-| `npm test`       | Roda os testes                                     |
-| `npm run lint`   | Verifica o código                                  |
-| `npm run format` | Formata o código                                   |
+| Comando                                     | O que faz                                                                        |
+| ------------------------------------------- | -------------------------------------------------------------------------------- |
+| `npm run dev`                               | Sobe o servidor e reinicia ao salvar (lê o `.env`)                               |
+| `npm start`                                 | Sobe o servidor (produção)                                                       |
+| `npm test`                                  | Roda os testes                                                                   |
+| `npm run lint`                              | Verifica o código                                                                |
+| `npm run format`                            | Formata o código                                                                 |
+| `npm run conferir -- <url> [email] [senha]` | Confere, de fora, se a API publicada é esta versão e se as barreiras estão de pé |
 
 ## Variáveis de ambiente
 
@@ -532,8 +533,19 @@ superfície de graça.
 Em ordem de quem bloqueia o quê. Os dois primeiros são **impeditivos**: sem
 eles, ninguém entra em produção.
 
+O passo a passo detalhado, com o que esperar e o que fazer quando der errado,
+está em
+[`docs/passo-a-passo-ligar-o-login.md`](docs/passo-a-passo-ligar-o-login.md).
+
+> **Atenção ao que está no ar hoje.** A build publicada no Render é **anterior à
+> autenticação**: `GET /api/videos` responde 200 **sem token**, ou seja, o
+> catálogo adulto está aberto a qualquer pessoa com a URL. A causa é o item 1
+> abaixo — sem `DATABASE_URL` a build nova não sobe, e o Render mantém a
+> anterior. Confira com `npm run conferir -- <url>`.
+
 1. **Criar o Postgres gerenciado** e cadastrar `DATABASE_URL` no Render. Sem a
-   variável o processo não sobe, de propósito.
+   variável o processo não sobe, de propósito. **E é isto que destrava tudo o
+   mais:** enquanto não existir, o que está publicado é a versão aberta.
 2. **Revisão jurídica** dos Termos e da Política de Privacidade (textos no
    repositório do front, marcados como rascunho **na própria página**). Depois
    dela, atualizar a data em `src/config/legal.js` **uma vez**.
@@ -541,6 +553,7 @@ eles, ninguém entra em produção.
    denúncias não tem quem a olhe.
 4. Rodar os testes de SQL contra um Postgres de verdade
    (`TEST_DATABASE_URL=... npm test`): são 21 testes que nunca rodaram aqui.
+   Passo 7 do passo a passo.
 5. `CORS_ORIGINS` com a URL do front quando ele for publicado (hoje só
    `http://localhost:5173`).
 6. **Captcha (opcional, ADR-0014):** registrar o site em
@@ -548,3 +561,38 @@ eles, ninguém entra em produção.
    `RECAPTCHA_SECRET` aqui e voltar o widget no front. Enquanto a variável não
    existir, o captcha não é exigido e o boot avisa.
 7. **Etapa 5 (front):** `VITE_AUTH_MODE=api` e o botão "Excluir minha conta".
+
+### 06/11/2026 — Passo a passo para ligar o login, e um verificador de produção
+
+Relato de quem usa: "qualquer e-mail e senha entra, mesmo tirando o captcha e
+mantendo o banco de usuários". A causa estava no front
+(`VITE_AUTH_MODE=local`, que nem chama a API), mas a investigação encontrou
+**coisa pior aqui**: a build publicada no Render é anterior à autenticação.
+
+```
+GET /api/videos      → 200 com 30 títulos, sem token
+POST /auth/accept    → 404
+POST /auth/login     → 400 "Confirme que você não é um robô"
+```
+
+Ou seja: o catálogo adulto está aberto a qualquer pessoa com a URL, e o login de
+lá exige um captcha que o front já não manda. A causa é previsível e de
+propósito — sem `DATABASE_URL` o processo se recusa a subir, o deploy novo
+falha, e o Render mantém no ar a build anterior. O fail-closed funcionou no
+processo e **não** no serviço: o que ficou de pé foi a versão sem barreira
+nenhuma.
+
+- **`npm run conferir -- <url> [email] [senha]`** (`scripts/conferir-producao.mjs`):
+  nove checagens de fora, sem depender do painel. Catálogo fechado sem sessão,
+  rotas do provedor de idade em 404, `POST /auth/accept` exigindo sessão,
+  credencial inválida não entrando, e — com conta — login, confirmação e
+  catálogo abrindo depois dela. Devolve código 1 se algo falhar, para servir em
+  CI.
+- **[`docs/passo-a-passo-ligar-o-login.md`](docs/passo-a-passo-ligar-o-login.md)**:
+  sete passos, cada um com o que fazer, o que esperar no log e o que fazer
+  quando der errado. Inclui o prazo do Postgres gratuito do Render, o formato do
+  `SEED_USERS` (é assim que a conta nasce — não há tela de cadastro) e o `UPDATE`
+  do `is_admin`.
+- O aviso sobre a build aberta entrou no topo dos "Próximos passos", porque é o
+  tipo de coisa que se descobre tarde: o serviço responde `200 OK` no `/health`,
+  o painel mostra "live", e o que está vivo é a versão errada.

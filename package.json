@@ -11,7 +11,8 @@
     "start": "node src/server.js",
     "test": "node --test --env-file-if-exists=.env test/*.test.js",
     "lint": "eslint .",
-    "format": "prettier --write \"{src,test}/**/*.js\""
+    "format": "prettier --write \"{src,test}/**/*.js\"",
+    "conferir": "node scripts/conferir-producao.mjs"
   },
   "dependencies": {
     "cors": "^2.8.5",

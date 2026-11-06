@@ -23,7 +23,27 @@ Para ver o estado atual a qualquer momento:
 node scripts/conferir-producao.mjs https://be-wiseup-one-api.onrender.com
 ```
 
-## 1. Criar o Postgres
+## 1. Criar o Postgres — **feito em 06/11/2026**
+
+Já existe: **`be-wiseup-one-db`**, Postgres 17, região **frankfurt** (a mesma do
+serviço da API), plano gratuito, banco e usuário `bewiseup`,
+`dpg-dbml4j3bc2fs73a9d6t0-a`. O schema já foi aplicado e os testes de SQL
+passaram contra ele.
+
+> **Ele expira em 06/12/2026.** O plano gratuito do Postgres do Render dura 30
+> dias. Antes disso: pagar o plano, ou migrar para [Neon](https://neon.tech) ou
+> [Supabase](https://supabase.com) — o que muda no código é só o valor de
+> `DATABASE_URL`, porque usamos `pg` puro (ADR-0013).
+
+O acesso externo está **fechado** (`ipAllowList` vazio, que é o padrão do Render
+e significa "ninguém de fora"). A API não precisa dele: fala pela URL interna.
+Para alcançar o banco da sua máquina — passo 7 —, libere o seu IP no painel do
+banco e **feche depois**.
+
+O texto abaixo fica para quando for preciso criar outro (expiração, troca de
+provedor, ambiente de teste).
+
+### Como foi criado
 
 No <https://dashboard.render.com>: **New → Postgres**. Nome qualquer (ex.:
 `be-wiseup-one-db`), região **a mesma do serviço da API** (senão a conexão sai
@@ -47,12 +67,12 @@ Database URL nesse caso, e aceite a latência.
 
 No serviço da API → **Environment** → **Add Environment Variable**:
 
-| Variável                | Valor                           | Para quê                                           |
-| ----------------------- | ------------------------------- | -------------------------------------------------- |
-| `DATABASE_URL`          | a URL copiada no passo 1        | sem ela o processo não sobe                        |
-| `SEED_USERS`            | `seuemail@dominio.com:suasenha` | **é assim que a sua conta nasce**                  |
-| `CORS_ORIGINS`          | a URL do front publicado        | só quando o front estiver na Vercel                |
-| `DATABASE_SSL_INSECURE` | `true`                          | **só** se o passo 3 falhar com erro de certificado |
+| Variável                | Valor                                                                             | Para quê                                                                                                                                                                |
+| ----------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`          | a **Internal Database URL** do `be-wiseup-one-db` (painel do banco → **Connect**) | sem ela o processo não sobe. A interna, não a externa: é a que não sai do Render                                                                                        |
+| `SEED_USERS`            | `seuemail@dominio.com:suasenha`                                                   | **é assim que a sua conta nasce**                                                                                                                                       |
+| `CORS_ORIGINS`          | `http://localhost:5173` e, depois, a URL do front publicado                       | **a cadastrada hoje é `CORS_ORIGIN`, no singular, e o código lê `CORS_ORIGINS`: nunca teve efeito.** Corrija o nome, ou o front em desenvolvimento não alcança esta API |
+| `DATABASE_SSL_INSECURE` | `true`                                                                            | **só** se o passo 3 falhar com erro de certificado                                                                                                                      |
 
 Sobre o `SEED_USERS`: **não existe tela de cadastro** — está fora do escopo pelo
 §9 do `plano-autenticacao.md`. As contas nascem desta variável, no boot, uma por
@@ -135,18 +155,26 @@ isso é à mão, de propósito. No painel do banco, aba **Shell** (ou `psql` com
 External URL):
 
 ```sql
-UPDATE users SET is_admin = 1 WHERE email = 'seuemail@dominio.com';
+UPDATE users SET is_admin = TRUE WHERE email = 'seuemail@dominio.com';
 ```
 
 Depois **saia e entre de novo** na conta: o crachá entra na sessão no login.
 
 ## 7. Rodar os testes de SQL contra um banco de verdade
 
-São 21 testes que nunca rodaram aqui — eles são pulados sem a variável. Use um
-banco **de teste** (eles apagam o que criam):
+Rodaram em 06/11/2026, contra o `be-wiseup-one-db` ainda vazio: **119 testes,
+119 passando, nenhum pulado**. Repita depois de mexer em `schema.sql` ou nos
+serviços de SQL.
+
+Os testes criam contas com prefixo `teste-` e apagam tudo no fim. Mesmo assim,
+prefira um banco de teste quando já houver conta de gente de verdade.
+
+Para alcançar o banco da sua máquina, o `ipAllowList` precisa do seu IP — no
+painel do banco, **Connections → Add source**, o seu IPv4 com `/32`. **Feche
+depois**: banco aberto para a internet é o oposto do que queremos.
 
 ```powershell
-$env:TEST_DATABASE_URL="postgresql://..."; npm test
+$env:TEST_DATABASE_URL="<External Database URL>"; npm test
 ```
 
 ## Depois disso

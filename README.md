@@ -208,7 +208,8 @@ Sempre `{ "error": { "code": "...", "message": "..." } }`.
 | Lista de bloqueados é por processo              | Fica em memória e é relida a cada 6h. Com mais de uma instância, o bloqueio feito em uma demora até um ciclo para chegar nas outras. Ver [ADR-0017](docs/adr/0017-denuncia-remocao-e-bloqueio.md)                                                                                                                              |
 | Ninguém analisa a fila de denúncias             | O mecanismo está pronto, e `is_admin` não está marcado para nenhuma conta                                                                                                                                                                                                                                                      |
 | Qualquer conta tira vídeo do ar                 | Dez por hora, escolhendo `menor`. É abuso fácil, e é a escolha certa: falso positivo custa um vídeo, falso negativo é crime no ar                                                                                                                                                                                              |
-| O SQL nunca rodou nesta máquina                 | Não há Postgres, Docker nem `psql` aqui: os testes de SQL só rodam com `TEST_DATABASE_URL`. Ver [ADR-0013](docs/adr/0013-postgres-gerenciado-no-lugar-do-sqlite.md)                                                                                                                                                            |
+| O banco gratuito do Render **expira**           | `be-wiseup-one-db` (frankfurt, Postgres 17) foi criado em 06/11/2026 e expira em **06/12/2026**: o plano gratuito tem 30 dias. Depois disso, migrar para Neon/Supabase ou pagar o plano — o que muda é só `DATABASE_URL` (ADR-0013)                                                                                            |
+| Acesso externo ao banco fica **fechado**        | O `ipAllowList` do Render vem vazio, e vazio significa "ninguém de fora". É o certo: a API fala pela URL interna. Para rodar os testes de SQL da sua máquina, libere o seu IP e **feche depois**                                                                                                                               |
 | Origem fora do ar por mais de 1h                | O cache expirado deixa de ser servido e a resposta passa a ser 502/504, de propósito: dado inverificável pode listar vídeo já removido na origem. Ver [ADR-0018](docs/adr/0018-teto-do-cache-e-registro-de-acesso.md)                                                                                                          |
 | A faxina do registro de acesso roda no processo | Uma vez por dia, por temporizador. Não há tarefa agendada por fora                                                                                                                                                                                                                                                             |
 
@@ -424,8 +425,9 @@ O `node:sqlite` saiu e entrou Postgres gerenciado — `pg` é a primeira
 dependência nova desde o Express, e a ADR-0003 (dependências mínimas) está
 marcada como limitada por ela. O disco do Render é efêmero, e aceite de termos,
 denúncia e bloqueio de vídeo **não podem** morrer a cada deploy.
-**Risco registrado:** este SQL nunca rodou — não há Postgres, Docker nem `psql`
-nesta máquina. O primeiro deploy é o primeiro teste.
+**Risco encerrado em 06/11/2026:** este SQL **rodou** contra um Postgres 17
+gerenciado (`be-wiseup-one-db`, frankfurt). Seis tabelas, 13 índices e os 21
+testes de SQL passando — ver o diário.
 
 **Catálogo fechado ([ADR-0012](docs/adr/0012-catalogo-exige-sessao.md)).**
 Enquanto `/api/home` era público, o login do front não barrava ninguém: bastava
@@ -543,17 +545,23 @@ está em
 > abaixo — sem `DATABASE_URL` a build nova não sobe, e o Render mantém a
 > anterior. Confira com `npm run conferir -- <url>`.
 
-1. **Criar o Postgres gerenciado** e cadastrar `DATABASE_URL` no Render. Sem a
-   variável o processo não sobe, de propósito. **E é isto que destrava tudo o
-   mais:** enquanto não existir, o que está publicado é a versão aberta.
+1. **Cadastrar `DATABASE_URL` e `SEED_USERS` no serviço da API e implantar.** O
+   banco já existe (`be-wiseup-one-db`, frankfurt, criado em 06/11/2026), com o
+   schema aplicado e testado. **É isto que destrava tudo o mais:** enquanto as
+   variáveis não existirem, a build nova não sobe e o que está publicado é a
+   versão aberta. Passos 2 e 3 do passo a passo.
+   **Cuidado:** a variável cadastrada hoje é `CORS_ORIGIN` (singular), e o
+   código lê `CORS_ORIGINS` — ela nunca teve efeito. Corrija o nome no mesmo
+   momento, incluindo `http://localhost:5173` para o front em desenvolvimento
+   alcançar esta API.
 2. **Revisão jurídica** dos Termos e da Política de Privacidade (textos no
    repositório do front, marcados como rascunho **na própria página**). Depois
    dela, atualizar a data em `src/config/legal.js` **uma vez**.
 3. **Marcar `is_admin`** para alguma conta, à mão no banco — sem isso a fila de
    denúncias não tem quem a olhe.
-4. Rodar os testes de SQL contra um Postgres de verdade
-   (`TEST_DATABASE_URL=... npm test`): são 21 testes que nunca rodaram aqui.
-   Passo 7 do passo a passo.
+4. ~~Rodar os testes de SQL contra um Postgres de verdade~~ — **feito** em
+   06/11/2026: 119 testes, 119 passando, nenhum pulado. Repetir depois de mexer
+   em `schema.sql` ou nos serviços de SQL (passo 7 do passo a passo).
 5. `CORS_ORIGINS` com a URL do front quando ele for publicado (hoje só
    `http://localhost:5173`).
 6. **Captcha (opcional, ADR-0014):** registrar o site em
@@ -596,3 +604,40 @@ nenhuma.
 - O aviso sobre a build aberta entrou no topo dos "Próximos passos", porque é o
   tipo de coisa que se descobre tarde: o serviço responde `200 OK` no `/health`,
   o painel mostra "live", e o que está vivo é a versão errada.
+
+### 06/11/2026 — O banco existe, e o SQL deixou de ser teoria
+
+Postgres gerenciado criado pela API do Render: **`be-wiseup-one-db`**, versão
+17, região **frankfurt** (a mesma do serviço — banco em outra região faria a
+conexão sair pela internet), plano gratuito, `dpg-dbml4j3bc2fs73a9d6t0-a`.
+
+**O schema rodou pela primeira vez**, e passou: seis tabelas (`users`,
+`sessions`, `terms_acceptances`, `reports`, `blocked_videos`, `access_logs`) e
+13 índices. A coluna de idade ficou como a ADR-0019 manda — `age_verified_at`,
+`age_method`, `age_declared_ip` — e **nenhuma** de documento, foto, CPF ou data
+de nascimento.
+
+**Os 21 testes de SQL deixaram de ser pulados: 119 testes, 119 passando.** Eles
+exercitam o que só o Postgres responde — a transação da declaração com o aceite,
+o `ON CONFLICT DO NOTHING` do aceite por versão, o `CASCADE` das sessões, o `SET
+NULL` das denúncias, a faxina por data em `TEXT` ISO 8601 e o registro de acesso
+sobrevivendo à exclusão da conta. O risco "este SQL nunca rodou", registrado na
+ADR-0013, está encerrado.
+
+Três coisas que só apareceram contra um banco de verdade:
+
+- **`is_admin` é `BOOLEAN`.** O `UPDATE users SET is_admin = 1` que eu havia
+  escrito no passo a passo quebraria em Postgres (`= 1` num booleano é erro de
+  tipo). Virou `= TRUE`. O código já estava certo (`Boolean(session.is_admin)`).
+- **`ipAllowList` vazio é "ninguém de fora".** O padrão do Render bloqueia todo
+  acesso externo ao banco, e é o certo — a API fala pela URL interna. Para rodar
+  os testes daqui, o IP foi liberado e **fechado em seguida**.
+- **`CORS_ORIGIN`, no singular, está cadastrada no serviço — e o código lê
+  `CORS_ORIGINS`.** A variável nunca teve efeito: o CORS vem usando o padrão
+  (`http://localhost:5173`). Entrou no passo a passo e no topo dos próximos
+  passos, porque é do tipo que passa anos sem ser notado.
+
+**O que falta, e não é código:** cadastrar `DATABASE_URL` e `SEED_USERS` no
+serviço e implantar. É mudança em serviço no ar, então não passa em modo
+automático — e enquanto não acontecer, o que está publicado continua sendo a
+build antiga, com o catálogo aberto.

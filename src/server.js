@@ -4,6 +4,7 @@ import './config/checkNode.js';
 import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { createDatabase } from './db/database.js';
+import { createAgeService } from './services/ageService.js';
 import { createAuthService } from './services/authService.js';
 import { createCache } from './services/cache.js';
 import { createCaptchaService } from './services/captchaService.js';
@@ -60,7 +61,24 @@ console.log(
   `Banco conectado: ${env.seedUsers.length} conta(s) em SEED_USERS, ${created} criada(s) agora.`
 );
 
-const app = createApp({ videosService, authService, corsOrigins: env.corsOrigins });
+// Verificação de idade (ADR-0015). O construtor já avisa no boot quando não há
+// provedor cadastrado, ou quando o atalho de desenvolvimento está ligado.
+const ageService = createAgeService({
+  providerUrl: env.ageProviderUrl,
+  providerKey: env.ageProviderKey,
+  webhookSecret: env.ageWebhookSecret,
+  isProduction: env.isProduction,
+  devAutoVerify: env.ageDevAutoVerify,
+  timeoutMs: env.upstreamTimeoutMs,
+});
+
+const app = createApp({
+  videosService,
+  authService,
+  ageService,
+  users,
+  corsOrigins: env.corsOrigins,
+});
 
 app.listen(env.port, () => {
   console.log(`API rodando em http://localhost:${env.port}/api`);

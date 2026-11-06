@@ -77,7 +77,17 @@ export function createAuthService({
       expiresAt,
     });
 
-    return { user: { id: user.id, email: user.email }, token, expiresAt };
+    return {
+      // O front usa `ageVerified` para mandar direto a quem falta verificar,
+      // sem esperar o primeiro 403 do catálogo.
+      user: {
+        id: user.id,
+        email: user.email,
+        ageVerified: Boolean(user.age_verified_at),
+      },
+      token,
+      expiresAt,
+    };
   }
 
   return {
@@ -141,7 +151,13 @@ export function createAuthService({
       const session = await users.findSession(sha256(token));
       if (!session || session.expires_at <= nowIso) throw unauthorized();
 
-      return { id: session.id, email: session.email };
+      // `ageVerified` vai na sessão para o `requireAdult` decidir sem outra
+      // consulta. Campo ausente ou nulo é "não verificado" (ADR-0015).
+      return {
+        id: session.id,
+        email: session.email,
+        ageVerified: Boolean(session.age_verified_at),
+      };
     },
 
     /** Apaga a linha em `sessions`: é o que um JWT não permitiria. */

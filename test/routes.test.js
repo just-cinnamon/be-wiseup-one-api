@@ -1,17 +1,24 @@
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import { test } from 'node:test';
 import { createApp } from '../src/app.js';
 import { unauthorized } from '../src/http/errors.js';
+import { createAgeService } from '../src/services/ageService.js';
+import { fakeUsers } from './helpers.js';
 
 /*
- * Testes de rota (ADR-0012): o catálogo só responde com sessão.
+ * Testes de rota: quem passa e quem não passa (ADR-0012 e ADR-0015).
  *
  * Sem biblioteca de teste HTTP, que seria dependência nova (ADR-0003): o app
- * sobe numa porta livre (`listen(0)`) e o próprio `fetch` do Node faz as
- * chamadas.
+ * sobe numa porta livre (`listen(0)`) e o próprio `fetch` do Node chama.
  */
 
 const VALID_TOKEN = 'token-de-sessao-valido';
+const WEBHOOK_SECRET = 'segredo-do-webhook';
+const AGORA = '2026-11-05T12:00:00.000Z';
+const EMAIL = 'ana@wiseup.test';
+
+const CATALOGO = ['/api/home', '/api/videos', '/api/videos/abc', '/api/categories'];
 
 const fakeVideosService = {
   getHome: async () => ({ featured: null, top10: [], rows: [] }),
@@ -20,30 +27,55 @@ const fakeVideosService = {
   getCategories: async () => [],
 };
 
-const fakeAuthService = {
-  getSessionUser: (token) => {
-    if (token !== VALID_TOKEN) throw unauthorized();
-    return { id: 'u1', email: 'ana@wiseup.test' };
-  },
-  login: async () => ({
-    user: { id: 'u1', email: 'ana@wiseup.test' },
-    token: VALID_TOKEN,
-  }),
-  logout: () => {},
-  deleteAccount: () => {},
-};
+/**
+ * Sobe o app com `users` falso, uma conta já criada e um authService que só
+ * aceita VALID_TOKEN. `ageVerified` decide se a conta nasce verificada.
+ */
+async function withServer(run, { ageVerified = true, ageOptions = {} } = {}) {
+  const users = fakeUsers();
+  const { id } = await users.create({
+    email: EMAIL,
+    passwordHash: 'scrypt$fake',
+    createdAt: AGORA,
+  });
 
-/** Sobe o app numa porta livre, roda o teste e fecha sempre. */
-async function withServer(run, { authService = fakeAuthService } = {}) {
+  if (ageVerified) {
+    await users.setAgeRef(id, { ref: 'ref-verificada', method: 'facial' });
+    await users.setAgeVerified({
+      ref: 'ref-verificada',
+      verifiedAt: AGORA,
+      method: 'facial',
+    });
+  }
+
+  const authService = {
+    getSessionUser: async (token) => {
+      if (token !== VALID_TOKEN) throw unauthorized();
+      const user = await users.findById(id);
+      return { id, email: user.email, ageVerified: Boolean(user.age_verified_at) };
+    },
+    login: async () => ({ user: { id, email: EMAIL }, token: VALID_TOKEN }),
+    logout: async () => true,
+    deleteAccount: async () => true,
+  };
+
+  const ageService = createAgeService({
+    webhookSecret: WEBHOOK_SECRET,
+    now: () => new Date(AGORA),
+    ...ageOptions,
+  });
+
   const app = createApp({
     videosService: fakeVideosService,
     authService,
+    ageService,
+    users,
     corsOrigins: ['http://localhost:5173'],
   });
   const server = app.listen(0);
   await new Promise((resolve) => server.on('listening', resolve));
   try {
-    await run(`http://127.0.0.1:${server.address().port}`);
+    await run({ base: `http://127.0.0.1:${server.address().port}`, users, userId: id });
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -51,14 +83,24 @@ async function withServer(run, { authService = fakeAuthService } = {}) {
 
 const bearer = (token) => ({ headers: { Authorization: `Bearer ${token}` } });
 
+/** Corpo e assinatura HMAC que o provedor mandaria. */
+function assinado(payload, { secret = WEBHOOK_SECRET } = {}) {
+  const body = JSON.stringify(payload);
+  return {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-signature': createHmac('sha256', secret).update(body).digest('hex'),
+    },
+    body,
+  };
+}
+
+// ---- Sessão (ADR-0012) ----
+
 test('as rotas de catálogo recusam quem não tem sessão', async () => {
-  await withServer(async (base) => {
-    for (const path of [
-      '/api/home',
-      '/api/videos',
-      '/api/videos/abc',
-      '/api/categories',
-    ]) {
+  await withServer(async ({ base }) => {
+    for (const path of CATALOGO) {
       const response = await fetch(`${base}${path}`);
       const body = await response.json();
       assert.equal(response.status, 401, `${path} devia devolver 401`);
@@ -68,7 +110,7 @@ test('as rotas de catálogo recusam quem não tem sessão', async () => {
 });
 
 test('token inválido ou esquema errado também não passa', async () => {
-  await withServer(async (base) => {
+  await withServer(async ({ base }) => {
     const semEsquema = await fetch(`${base}/api/home`, {
       headers: { Authorization: VALID_TOKEN },
     });
@@ -79,8 +121,8 @@ test('token inválido ou esquema errado também não passa', async () => {
   });
 });
 
-test('com sessão válida o catálogo responde, e sem cache compartilhado', async () => {
-  await withServer(async (base) => {
+test('com sessão e idade verificada o catálogo responde, sem cache compartilhado', async () => {
+  await withServer(async ({ base }) => {
     const response = await fetch(`${base}/api/home`, bearer(VALID_TOKEN));
     assert.equal(response.status, 200);
     // `private`: proxy e CDN não podem guardar resposta de uma conta para
@@ -91,7 +133,7 @@ test('com sessão válida o catálogo responde, e sem cache compartilhado', asyn
 });
 
 test('/health e o login continuam abertos', async () => {
-  await withServer(async (base) => {
+  await withServer(async ({ base }) => {
     const health = await fetch(`${base}/api/health`);
     assert.equal(health.status, 200);
     assert.deepEqual(await health.json(), { status: 'ok' });
@@ -99,7 +141,7 @@ test('/health e o login continuam abertos', async () => {
     const login = await fetch(`${base}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'ana@wiseup.test', password: 'segredo123' }),
+      body: JSON.stringify({ email: EMAIL, password: 'segredo123' }),
     });
     assert.equal(login.status, 200);
     assert.equal(login.headers.get('cache-control'), 'no-store');
@@ -115,5 +157,181 @@ test('sem authService o app não sobe, em vez de servir o catálogo aberto', () 
         corsOrigins: [],
       }),
     /exige authService/
+  );
+});
+
+// ---- Idade (ADR-0015) ----
+
+test('logado sem idade verificada não vê nem miniatura', async () => {
+  await withServer(
+    async ({ base }) => {
+      for (const path of CATALOGO) {
+        const response = await fetch(`${base}${path}`, bearer(VALID_TOKEN));
+        const body = await response.json();
+        assert.equal(response.status, 403, `${path} devia devolver 403`);
+        assert.equal(body.error.code, 'AGE_REQUIRED');
+      }
+    },
+    { ageVerified: false }
+  );
+});
+
+test('as rotas de idade exigem sessão, menos o webhook', async () => {
+  await withServer(async ({ base }) => {
+    assert.equal((await fetch(`${base}/api/age/status`)).status, 401);
+    assert.equal(
+      (await fetch(`${base}/api/age/session`, { method: 'POST' })).status,
+      401
+    );
+
+    // O webhook não exige sessão — quem chama é o provedor — e recusa por
+    // assinatura.
+    const webhook = await fetch(`${base}/api/age/webhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_reference: 'x', result: 'approved' }),
+    });
+    assert.equal(webhook.status, 401);
+  });
+});
+
+test('/age/status distingue nunca tentou, em andamento e verificado', async () => {
+  await withServer(
+    async ({ base, users, userId }) => {
+      const pedir = async () =>
+        (await fetch(`${base}/api/age/status`, bearer(VALID_TOKEN))).json();
+
+      assert.deepEqual(await pedir(), {
+        ageVerified: false,
+        pending: false,
+        method: null,
+        verifiedAt: null,
+      });
+
+      await users.setAgeRef(userId, { ref: 'ref-1', method: null });
+      const andamento = await pedir();
+      assert.equal(andamento.pending, true);
+      assert.equal(andamento.ageVerified, false);
+
+      await users.setAgeVerified({ ref: 'ref-1', verifiedAt: AGORA, method: 'facial' });
+      assert.deepEqual(await pedir(), {
+        ageVerified: true,
+        pending: false,
+        method: 'facial',
+        verifiedAt: AGORA,
+      });
+    },
+    { ageVerified: false }
+  );
+});
+
+test('sem provedor cadastrado, abrir verificação dá 503 e não libera nada', async () => {
+  await withServer(
+    async ({ base }) => {
+      const response = await fetch(`${base}/api/age/session`, {
+        method: 'POST',
+        ...bearer(VALID_TOKEN),
+      });
+      assert.equal(response.status, 503);
+      assert.equal((await response.json()).error.code, 'AGE_PROVIDER_UNAVAILABLE');
+
+      // E o catálogo continua fechado.
+      assert.equal((await fetch(`${base}/api/home`, bearer(VALID_TOKEN))).status, 403);
+    },
+    { ageVerified: false }
+  );
+});
+
+test('o webhook assinado marca a conta, e o catálogo abre em seguida', async () => {
+  await withServer(
+    async ({ base, users, userId }) => {
+      await users.setAgeRef(userId, { ref: 'ref-provedor', method: null });
+
+      const response = await fetch(
+        `${base}/api/age/webhook`,
+        assinado({
+          client_reference: 'ref-provedor',
+          result: 'approved',
+          method: 'facial',
+        })
+      );
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), { ok: true, ageVerified: true });
+
+      const conta = await users.findById(userId);
+      assert.equal(conta.age_verified_at, AGORA);
+      assert.equal(conta.age_method, 'facial');
+
+      assert.equal((await fetch(`${base}/api/home`, bearer(VALID_TOKEN))).status, 200);
+    },
+    { ageVerified: false }
+  );
+});
+
+test('assinatura de outro segredo não marca nada', async () => {
+  await withServer(
+    async ({ base, users, userId }) => {
+      await users.setAgeRef(userId, { ref: 'ref-provedor', method: null });
+
+      const response = await fetch(
+        `${base}/api/age/webhook`,
+        assinado(
+          { client_reference: 'ref-provedor', result: 'approved' },
+          { secret: 'segredo-errado' }
+        )
+      );
+      assert.equal(response.status, 401);
+      assert.equal((await users.findById(userId)).age_verified_at, null);
+    },
+    { ageVerified: false }
+  );
+});
+
+test('verificação reprovada é recebida e não libera o acesso', async () => {
+  await withServer(
+    async ({ base, users, userId }) => {
+      await users.setAgeRef(userId, { ref: 'ref-provedor', method: null });
+
+      const response = await fetch(
+        `${base}/api/age/webhook`,
+        assinado({ client_reference: 'ref-provedor', result: 'declined' })
+      );
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), { ok: true, ageVerified: false });
+      assert.equal((await users.findById(userId)).age_verified_at, null);
+      assert.equal((await fetch(`${base}/api/home`, bearer(VALID_TOKEN))).status, 403);
+    },
+    { ageVerified: false }
+  );
+});
+
+test('AGE_DEV_AUTOVERIFY verifica sem provedor, e não existe em produção', async () => {
+  await withServer(
+    async ({ base, users, userId }) => {
+      const response = await fetch(`${base}/api/age/session`, {
+        method: 'POST',
+        ...bearer(VALID_TOKEN),
+      });
+      assert.deepEqual(await response.json(), {
+        ageVerified: true,
+        url: null,
+        dev: true,
+      });
+      assert.equal((await users.findById(userId)).age_method, 'desenvolvimento');
+      assert.equal((await fetch(`${base}/api/home`, bearer(VALID_TOKEN))).status, 200);
+    },
+    { ageVerified: false, ageOptions: { devAutoVerify: true } }
+  );
+
+  // Em produção o atalho não existe, e a rota volta a recusar com 503.
+  await withServer(
+    async ({ base }) => {
+      const response = await fetch(`${base}/api/age/session`, {
+        method: 'POST',
+        ...bearer(VALID_TOKEN),
+      });
+      assert.equal(response.status, 503);
+    },
+    { ageVerified: false, ageOptions: { devAutoVerify: true, isProduction: true } }
   );
 });

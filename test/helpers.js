@@ -48,6 +48,10 @@ export function fakeUsers() {
         created_at: createdAt,
         failed_count: 0,
         locked_until: null,
+        // Verificação de idade (ADR-0015): nasce sem nada verificado.
+        age_verified_at: null,
+        age_method: null,
+        age_ref: null,
       };
       byId.set(user.id, user);
       return { id: user.id, email: user.email };
@@ -75,12 +79,44 @@ export function fakeUsers() {
       });
     },
 
+    async findById(userId) {
+      return byId.get(userId);
+    },
+
     async findSession(tokenHash) {
       const session = sessions.get(tokenHash);
       if (!session) return undefined;
       const user = byId.get(session.user_id);
       if (!user) return undefined;
-      return { id: user.id, email: user.email, expires_at: session.expires_at };
+      return {
+        id: user.id,
+        email: user.email,
+        age_verified_at: user.age_verified_at,
+        expires_at: session.expires_at,
+      };
+    },
+
+    // ---- Verificação de idade (ADR-0015) ----
+
+    async setAgeRef(userId, { ref, method }) {
+      const user = byId.get(userId);
+      if (!user) return;
+      user.age_ref = ref;
+      user.age_method = method ?? user.age_method;
+    },
+
+    async findByAgeRef(ref) {
+      return [...byId.values()].find((u) => u.age_ref === ref);
+    },
+
+    async setAgeVerified({ ref, verifiedAt, method }) {
+      const user = [...byId.values()].find(
+        (u) => u.age_ref === ref && !u.age_verified_at
+      );
+      if (!user) return false;
+      user.age_verified_at = verifiedAt;
+      user.age_method = method ?? user.age_method;
+      return true;
     },
 
     async removeSession(tokenHash) {

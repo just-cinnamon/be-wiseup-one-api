@@ -48,10 +48,20 @@ export function createUsersService({ db }) {
       );
     },
 
-    /** Sessão com os dados do usuário, sem olhar a validade. */
+    /** Linha crua de `users` por id, ou undefined. */
+    async findById(userId) {
+      const { rows } = await db.query('SELECT * FROM users WHERE id = $1', [userId]);
+      return rows[0];
+    },
+
+    /**
+     * Sessão com os dados do usuário, sem olhar a validade.
+     * Traz `age_verified_at` porque o `requireAdult` decide por requisição, e
+     * uma consulta a mais por chamada autenticada não se justifica.
+     */
     async findSession(tokenHash) {
       const { rows } = await db.query(
-        `SELECT u.id, u.email, s.expires_at
+        `SELECT u.id, u.email, u.age_verified_at, s.expires_at
            FROM sessions s
            JOIN users u ON u.id = s.user_id
           WHERE s.token_hash = $1`,
@@ -64,6 +74,40 @@ export function createUsersService({ db }) {
       const { rowCount } = await db.query('DELETE FROM sessions WHERE token_hash = $1', [
         tokenHash,
       ]);
+      return rowCount > 0;
+    },
+
+    // ---- Verificação de idade (ADR-0015) ----
+
+    /**
+     * Guarda a referência da verificação em andamento. Não verifica nada: só
+     * anota qual identificação do provedor pertence a esta conta, para o
+     * webhook saber de quem está falando.
+     */
+    async setAgeRef(userId, { ref, method }) {
+      await db.query('UPDATE users SET age_ref = $1, age_method = $2 WHERE id = $3', [
+        ref,
+        method ?? null,
+        userId,
+      ]);
+    },
+
+    /** Conta cuja verificação em andamento tem esta referência. */
+    async findByAgeRef(ref) {
+      const { rows } = await db.query('SELECT * FROM users WHERE age_ref = $1', [ref]);
+      return rows[0];
+    },
+
+    /**
+     * Marca a idade como verificada. Guarda **só** quando, como e o ID no
+     * provedor — nunca documento, foto, CPF ou data de nascimento.
+     */
+    async setAgeVerified({ ref, verifiedAt, method }) {
+      const { rowCount } = await db.query(
+        `UPDATE users SET age_verified_at = $1, age_method = COALESCE($2, age_method)
+          WHERE age_ref = $3 AND age_verified_at IS NULL`,
+        [verifiedAt, method ?? null, ref]
+      );
       return rowCount > 0;
     },
 

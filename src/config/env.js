@@ -45,6 +45,15 @@ export const env = {
   // certificado do servidor — escolha explícita, nunca o padrão.
   databaseSslInsecure: process.env.DATABASE_SSL_INSECURE === 'true',
 
+  // Verificação de idade (ADR-0015). Sem provedor cadastrado, a verificação
+  // recusa tudo — e o catálogo fica inacessível, que é o lado certo para errar.
+  ageProviderUrl: (process.env.AGE_PROVIDER_URL ?? '').trim(),
+  ageProviderKey: (process.env.AGE_PROVIDER_KEY ?? '').trim(),
+  ageWebhookSecret: (process.env.AGE_WEBHOOK_SECRET ?? '').trim(),
+  // Atalho de desenvolvimento: marca qualquer conta como verificada, sem
+  // provedor. Ignorado quando NODE_ENV=production.
+  ageDevAutoVerify: process.env.AGE_DEV_AUTOVERIFY === 'true',
+
   // Autenticação (ADR-0011)
   recaptchaSecret: (process.env.RECAPTCHA_SECRET ?? '').trim(),
   sessionTtlHours: toInt(process.env.SESSION_TTL_HOURS, 12),

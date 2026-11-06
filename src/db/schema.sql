@@ -28,3 +28,14 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+
+-- Verificação de idade (ADR-0015). Guardamos **só o resultado**: nunca foto,
+-- documento, CPF nem data de nascimento. `age_ref` é o identificador da
+-- verificação no provedor, usado para casar o webhook com a conta — e é o que
+-- marca uma verificação em andamento enquanto `age_verified_at` é nulo.
+-- ADD COLUMN IF NOT EXISTS mantém o arquivo idempotente para banco já criado.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS age_verified_at TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS age_method      TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS age_ref         TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_users_age_ref ON users(age_ref);

@@ -28,6 +28,7 @@ vencido quando a API externa falha, ou por que o banner da Home fica borrado.
 | [0012](0012-catalogo-exige-sessao.md) | O catálogo só responde com sessão, e o app não sobe sem autenticação | Aceita | 2026-11-05 |
 | [0013](0013-postgres-gerenciado-no-lugar-do-sqlite.md) | Postgres gerenciado no lugar do `node:sqlite` | Aceita | 2026-11-05 |
 | [0014](0014-captcha-exigido-so-com-secret.md) | O captcha é exigido só quando há secret para conferi-lo | Aceita | 2026-11-05 |
+| [0015](0015-verificacao-de-idade-no-servidor.md) | Verificação de idade decidida no servidor, com provedor externo | Aceita | 2026-11-05 |
 
 ## Como criar uma nova ADR
 

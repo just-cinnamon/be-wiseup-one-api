@@ -82,6 +82,7 @@ test('login devolve usuário, token e validade', async () => {
 
   assert.equal(result.user.email, EMAIL);
   assert.ok(result.user.id);
+  assert.equal(result.user.ageVerified, false);
   assert.ok(result.token.length >= 40);
   assert.equal(result.expiresAt, '2026-11-06T00:00:00.000Z');
   // O token em claro não pode aparecer na resposta de nenhum outro campo.
@@ -211,6 +212,8 @@ test('token válido vira usuário; token inválido dá 401', async () => {
   assert.deepEqual(await authService.getSessionUser(token), {
     id: user.id,
     email: EMAIL,
+    // Conta nova nunca nasce verificada (ADR-0015).
+    ageVerified: false,
   });
 
   for (const ruim of ['', 'curto', `${token}x`, null, undefined, 'y'.repeat(201)]) {

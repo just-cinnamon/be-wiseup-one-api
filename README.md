@@ -26,44 +26,44 @@ Teste: `curl.exe http://localhost:3333/api/health` → `{"status":"ok"}`
 
 ## Scripts
 
-| Comando | O que faz |
-| --- | --- |
-| `npm run dev` | Sobe o servidor e reinicia ao salvar (lê o `.env`) |
-| `npm start` | Sobe o servidor (produção) |
-| `npm test` | Roda os testes |
-| `npm run lint` | Verifica o código |
-| `npm run format` | Formata o código |
+| Comando          | O que faz                                          |
+| ---------------- | -------------------------------------------------- |
+| `npm run dev`    | Sobe o servidor e reinicia ao salvar (lê o `.env`) |
+| `npm start`      | Sobe o servidor (produção)                         |
+| `npm test`       | Roda os testes                                     |
+| `npm run lint`   | Verifica o código                                  |
+| `npm run format` | Formata o código                                   |
 
 ## Variáveis de ambiente
 
-| Variável | Padrão | Para quê |
-| --- | --- | --- |
-| `PORT` | `3333` | Porta do servidor (o provedor define em produção) |
-| `CORS_ORIGINS` | `http://localhost:5173` | Origens do front liberadas, separadas por vírgula |
-| `UPSTREAM_BASE_URL` | `https://www.pornhub.com/webmasters` | API externa |
-| `UPSTREAM_TIMEOUT_MS` | `8000` | Tempo máximo de espera da API externa |
-| `CACHE_TTL_SECONDS` | `600` | Validade do cache em memória |
-| `DATABASE_URL` | — | **Obrigatória.** Postgres com contas, sessões, aceites, denúncias e registros de acesso ([ADR-0013](docs/adr/0013-postgres-gerenciado-no-lugar-do-sqlite.md)). Sem ela o processo não sobe |
-| `DATABASE_SSL_INSECURE` | `false` | `true` aceita certificado próprio do provedor. Relaxar TLS é escolha explícita |
-| `RECAPTCHA_SECRET` | _(vazio)_ | Secret do reCAPTCHA v2. **Vazio: o captcha não é exigido** ([ADR-0014](docs/adr/0014-captcha-exigido-so-com-secret.md)) — exigir um token que ninguém confere seria teatro |
-| `SESSION_TTL_HOURS` | `12` | Validade da sessão |
-| `LOGIN_MAX_ATTEMPTS` | `5` | Erros de senha até bloquear a conta |
-| `LOGIN_LOCK_MINUTES` | `15` | Duração do bloqueio |
-| `SEED_USERS` | _(vazio)_ | Contas criadas no boot: `email:senha,email:senha` |
-| `AGE_PROVIDER_URL` | _(vazio)_ | Provedor de verificação de idade ([ADR-0015](docs/adr/0015-verificacao-de-idade-no-servidor.md)). Sem ele, `/api/age/session` devolve 503 e **ninguém entra no catálogo** |
-| `AGE_PROVIDER_KEY` | _(vazio)_ | Chave do provedor |
-| `AGE_WEBHOOK_SECRET` | _(vazio)_ | Segredo que autentica o webhook do provedor (HMAC-SHA256 do corpo cru). Vazio: nenhuma assinatura é aceita |
-| `AGE_DEV_AUTOVERIFY` | `false` | Atalho de desenvolvimento: marca a conta como verificada sem provedor. **Ignorado quando `NODE_ENV=production`** |
+| Variável                | Padrão                               | Para quê                                                                                                                                                                                   |
+| ----------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `PORT`                  | `3333`                               | Porta do servidor (o provedor define em produção)                                                                                                                                          |
+| `CORS_ORIGINS`          | `http://localhost:5173`              | Origens do front liberadas, separadas por vírgula                                                                                                                                          |
+| `UPSTREAM_BASE_URL`     | `https://www.pornhub.com/webmasters` | API externa                                                                                                                                                                                |
+| `UPSTREAM_TIMEOUT_MS`   | `8000`                               | Tempo máximo de espera da API externa                                                                                                                                                      |
+| `CACHE_TTL_SECONDS`     | `600`                                | Validade do cache em memória                                                                                                                                                               |
+| `DATABASE_URL`          | —                                    | **Obrigatória.** Postgres com contas, sessões, aceites, denúncias e registros de acesso ([ADR-0013](docs/adr/0013-postgres-gerenciado-no-lugar-do-sqlite.md)). Sem ela o processo não sobe |
+| `DATABASE_SSL_INSECURE` | `false`                              | `true` aceita certificado próprio do provedor. Relaxar TLS é escolha explícita                                                                                                             |
+| `RECAPTCHA_SECRET`      | _(vazio)_                            | Secret do reCAPTCHA v2. **Vazio: o captcha não é exigido** ([ADR-0014](docs/adr/0014-captcha-exigido-so-com-secret.md)) — exigir um token que ninguém confere seria teatro                 |
+| `SESSION_TTL_HOURS`     | `12`                                 | Validade da sessão                                                                                                                                                                         |
+| `LOGIN_MAX_ATTEMPTS`    | `5`                                  | Erros de senha até bloquear a conta                                                                                                                                                        |
+| `LOGIN_LOCK_MINUTES`    | `15`                                 | Duração do bloqueio                                                                                                                                                                        |
+| `SEED_USERS`            | _(vazio)_                            | Contas criadas no boot: `email:senha,email:senha`                                                                                                                                          |
+
+A idade **não tem variável nenhuma**: ela é declarada pela própria pessoa
+([ADR-0019](docs/adr/0019-idade-por-autodeclaracao.md)), e não há provedor para
+contratar nem segredo para cadastrar.
 
 ## Endpoints
 
-| Rota | Retorna |
-| --- | --- |
-| `GET /api/health` | `{ "status": "ok" }` — aberta, não devolve dado nenhum |
-| `GET /api/home` | `{ featured, top10, rows: [{ id, title, items }] }` |
-| `GET /api/videos?q=&category=&ordering=&period=&page=` | `{ page, items, hasMore }` |
-| `GET /api/videos/:id` | `Title` + `tags`, `views`, `publishedAt`, `embedUrl` |
-| `GET /api/categories` | `[{ id, slug, name }]` |
+| Rota                                                   | Retorna                                                |
+| ------------------------------------------------------ | ------------------------------------------------------ |
+| `GET /api/health`                                      | `{ "status": "ok" }` — aberta, não devolve dado nenhum |
+| `GET /api/home`                                        | `{ featured, top10, rows: [{ id, title, items }] }`    |
+| `GET /api/videos?q=&category=&ordering=&period=&page=` | `{ page, items, hasMore }`                             |
+| `GET /api/videos/:id`                                  | `Title` + `tags`, `views`, `publishedAt`, `embedUrl`   |
+| `GET /api/categories`                                  | `[{ id, slug, name }]`                                 |
 
 Valores aceitos: `ordering` = `featured`, `newest`, `mostviewed`, `rating` · `period` = `weekly`, `monthly`, `alltime` · `page` = 1 a 50 · `q` até 80 caracteres.
 
@@ -73,50 +73,57 @@ Nenhuma miniatura, título ou `embedUrl` sai da API sem as três. **A ordem em
 `src/routes/index.js` é a regra de acesso**, e tudo que está registrado depois
 de um `router.use` exige aquela barreira:
 
-| Ordem | Barreira | Falta? | ADR |
-| --- | --- | --- | --- |
-| 1 | Sessão válida (`Authorization: Bearer`) | `401 UNAUTHORIZED` | [0012](docs/adr/0012-catalogo-exige-sessao.md) |
-| 2 | Idade verificada por provedor externo | `403 AGE_REQUIRED` | [0015](docs/adr/0015-verificacao-de-idade-no-servidor.md) |
-| 3 | Termos e privacidade aceitos, na versão vigente | `403 TERMS_REQUIRED` | [0016](docs/adr/0016-aceite-de-termos-por-versao.md) |
+| Ordem | Barreira                                        | Falta?               | ADR                                                  |
+| ----- | ----------------------------------------------- | -------------------- | ---------------------------------------------------- |
+| 1     | Sessão válida (`Authorization: Bearer`)         | `401 UNAUTHORIZED`   | [0012](docs/adr/0012-catalogo-exige-sessao.md)       |
+| 2     | Maioridade declarada pela pessoa                | `403 AGE_REQUIRED`   | [0019](docs/adr/0019-idade-por-autodeclaracao.md)    |
+| 3     | Termos e privacidade aceitos, na versão vigente | `403 TERMS_REQUIRED` | [0016](docs/adr/0016-aceite-de-termos-por-versao.md) |
 
 Campo ausente ou nulo é sempre "não": dado que falta nunca libera acesso.
 
-### Verificação de idade
+### Declaração de maioridade e aceite — a porta única
 
-Montadas **fora** da barreira de idade, por necessidade: exigir idade verificada
-para poder verificar a idade seria o cadeado trancando a chave dentro.
+| Rota                    | Corpo / cabeçalho       | Retorna                                                            |
+| ----------------------- | ----------------------- | ------------------------------------------------------------------ |
+| `POST /api/auth/accept` | `Authorization: Bearer` | `{ ageVerified: true, termsAccepted: true, acceptedAt, versions }` |
 
-| Rota | Corpo / cabeçalho | Retorna |
-| --- | --- | --- |
-| `POST /api/age/session` | `Authorization: Bearer` | `{ ageVerified, url }` — `url` é para onde mandar a pessoa |
-| `GET /api/age/status` | `Authorization: Bearer` | `{ ageVerified, pending, method, verifiedAt }` |
-| `POST /api/age/webhook` | assinatura HMAC-SHA256 do corpo cru | `{ ok: true }` — é o provedor quem chama |
+Exige sessão e **não** exige idade declarada nem termos aceitos — seria o
+cadeado trancando a chave dentro. Não há corpo a validar, porque não há opção a
+escolher: é uma caixa de seleção que diz as duas coisas, e ela fica na tela do
+front ([ADR-0019](docs/adr/0019-idade-por-autodeclaracao.md)).
 
-Guardamos **três campos**: que a verificação passou, quando e por qual método.
-Documento, foto, CPF e data de nascimento não entram no banco — quem verifica é
-o provedor. O e-mail nunca é enviado a ele: vai um código aleatório.
+As duas são gravadas **na mesma transação**: não existe estado em que a pessoa
+aceitou os termos e não declarou a idade, ou o contrário.
 
-### Aceite de termos
+O que fica guardado:
 
-| Rota | Corpo / cabeçalho | Retorna |
-| --- | --- | --- |
-| `POST /api/auth/accept-terms` | `Authorization: Bearer` | `{ termsAccepted: true, acceptedAt, versions }` |
+- da idade — **quando** declarou, por qual **meio** (`autodeclaracao`) e de qual
+  **IP**. Numa declaração, a data e o IP são toda a evidência que existe;
+- dos documentos — uma linha por documento e versão, e **nada é apagado** quando
+  sai versão nova: é o que responde depois "o que esta conta aceitou, e quando".
+  A versão vigente está em `src/config/legal.js` — mudar a data ali obriga todo
+  mundo a aceitar de novo, sem deslogar ninguém e sem pedir a declaração outra
+  vez.
 
-Uma linha por documento e versão, e **nada é apagado** quando sai versão nova:
-é o que responde depois "o que esta conta aceitou, e quando". A versão vigente
-está em `src/config/legal.js` — mudar a data ali obriga todo mundo a aceitar de
-novo, sem deslogar ninguém.
+Chamar de novo não reescreve a declaração nem duplica o aceite: a declaração que
+vale é a primeira, porque é a que a pessoa fez.
+
+> **Isto não verifica idade.** Não pedimos documento nem foto, e não existe
+> coluna para eles em nenhuma tabela. Quem marca a caixa declarando idade falsa
+> entra — é a consequência da decisão, está na ADR-0019 e nas páginas legais do
+> front, e a volta para verificação por terceiro está desenhada na
+> [ADR-0015](docs/adr/0015-verificacao-de-idade-no-servidor.md).
 
 ### Denúncia e moderação
 
-| Rota | Quem pode | Retorna |
-| --- | --- | --- |
-| `GET /api/reports/reasons` | qualquer sessão | `{ reasons }` — a lista que o front mostra |
-| `POST /api/reports` | qualquer sessão | `{ id, blocked }` — `blocked: true` = o vídeo **já saiu** do catálogo |
-| `GET /api/reports/open` | `is_admin` | `{ reports }` — fila de análise |
-| `GET /api/reports/blocked` | `is_admin` | `{ blocked }` — o que está fora, e por quê |
-| `POST /api/reports/:id/review` | `is_admin` | `{ status, blocked }` — corpo `{ procede: true }` |
-| `POST /api/reports/block` | `is_admin` | `{ videoId, blocked }` — bloqueio manual |
+| Rota                           | Quem pode       | Retorna                                                               |
+| ------------------------------ | --------------- | --------------------------------------------------------------------- |
+| `GET /api/reports/reasons`     | qualquer sessão | `{ reasons }` — a lista que o front mostra                            |
+| `POST /api/reports`            | qualquer sessão | `{ id, blocked }` — `blocked: true` = o vídeo **já saiu** do catálogo |
+| `GET /api/reports/open`        | `is_admin`      | `{ reports }` — fila de análise                                       |
+| `GET /api/reports/blocked`     | `is_admin`      | `{ blocked }` — o que está fora, e por quê                            |
+| `POST /api/reports/:id/review` | `is_admin`      | `{ status, blocked }` — corpo `{ procede: true }`                     |
+| `POST /api/reports/block`      | `is_admin`      | `{ videoId, blocked }` — bloqueio manual                              |
 
 - `menor` e `sem_consentimento` **tiram o vídeo do ar na hora**, na mesma
   transação da denúncia, antes de qualquer análise. Os outros motivos
@@ -132,12 +139,12 @@ novo, sem deslogar ninguém.
 
 Login real, com senha conferida no servidor ([ADR-0011](docs/adr/0011-contas-em-sqlite-limitando-a-0004.md)). Estas são as únicas rotas que não são `GET`, as únicas com corpo JSON (limite de 4kb) e todas respondem com `Cache-Control: no-store`.
 
-| Rota | Corpo / cabeçalho | Retorna |
-| --- | --- | --- |
-| `POST /api/auth/login` | `{ email, password, captchaToken }` | `{ user: { id, email, ageVerified, termsAccepted }, token, expiresAt }` |
-| `GET /api/auth/me` | `Authorization: Bearer <token>` | `{ user: { id, email, ageVerified, termsAccepted, isAdmin }, legalVersions }` |
-| `POST /api/auth/logout` | `Authorization: Bearer <token>` | `{ ok: true }` — apaga a sessão no banco |
-| `DELETE /api/auth/me` | `Authorization: Bearer <token>` | `{ ok: true }` — apaga a conta e todas as sessões |
+| Rota                    | Corpo / cabeçalho                   | Retorna                                                                       |
+| ----------------------- | ----------------------------------- | ----------------------------------------------------------------------------- |
+| `POST /api/auth/login`  | `{ email, password, captchaToken }` | `{ user: { id, email, ageVerified, termsAccepted }, token, expiresAt }`       |
+| `GET /api/auth/me`      | `Authorization: Bearer <token>`     | `{ user: { id, email, ageVerified, termsAccepted, isAdmin }, legalVersions }` |
+| `POST /api/auth/logout` | `Authorization: Bearer <token>`     | `{ ok: true }` — apaga a sessão no banco                                      |
+| `DELETE /api/auth/me`   | `Authorization: Bearer <token>`     | `{ ok: true }` — apaga a conta e todas as sessões                             |
 
 A ordem da verificação do login é fixa: formato dos campos → captcha → bloqueio → senha. O captcha vem **antes** da senha para que força bruta não chegue de graça ao `scrypt`. Sem `RECAPTCHA_SECRET`, o captcha **não é exigido** e nem é consultado ([ADR-0014](docs/adr/0014-captcha-exigido-so-com-secret.md)): quem segura força bruta passa a ser só o bloqueio por conta, e o boot avisa isso em voz alta.
 
@@ -162,60 +169,59 @@ curl.exe -X POST http://localhost:3333/api/auth/login `
 
 Sempre `{ "error": { "code": "...", "message": "..." } }`.
 
-| Status | `code` | Quando |
-| --- | --- | --- |
-| 400 | `INVALID_PARAMS` | Parâmetro fora da lista permitida, ou corpo que não é JSON válido |
-| 400 | `CAPTCHA_FAILED` | O Google não confirmou o token do reCAPTCHA |
-| 401 | `INVALID_CREDENTIALS` | Senha errada **ou** e-mail inexistente |
-| 401 | `UNAUTHORIZED` | Token de sessão ausente, inválido, expirado ou já desconectado |
-| 403 | `AGE_REQUIRED` | Sessão válida, idade não verificada ([ADR-0015](docs/adr/0015-verificacao-de-idade-no-servidor.md)) |
-| 403 | `TERMS_REQUIRED` | Falta aceitar a versão vigente dos documentos ([ADR-0016](docs/adr/0016-aceite-de-termos-por-versao.md)) |
-| 403 | `ADMIN_ONLY` | Rota de moderação sem `is_admin` |
-| 404 | `NOT_FOUND` | Vídeo inexistente, bloqueado por denúncia, ou `id` fora do padrão |
-| 404 | `ROUTE_NOT_FOUND` | Rota que não existe, ou método não previsto |
-| 413 | `PAYLOAD_TOO_LARGE` | Corpo acima de 4kb em `/api/auth`, `/api/age` ou `/api/reports` |
-| 429 | `TOO_MANY_ATTEMPTS` | Conta bloqueada por erros de senha |
-| 429 | `TOO_MANY_REPORTS` | Mais de 10 denúncias na última hora, pela mesma conta |
-| 503 | `AGE_PROVIDER_UNAVAILABLE` | Provedor de idade sem cadastro, fora do ar ou com resposta estranha |
+| Status | `code`                | Quando                                                                                                   |
+| ------ | --------------------- | -------------------------------------------------------------------------------------------------------- |
+| 400    | `INVALID_PARAMS`      | Parâmetro fora da lista permitida, ou corpo que não é JSON válido                                        |
+| 400    | `CAPTCHA_FAILED`      | O Google não confirmou o token do reCAPTCHA                                                              |
+| 401    | `INVALID_CREDENTIALS` | Senha errada **ou** e-mail inexistente                                                                   |
+| 401    | `UNAUTHORIZED`        | Token de sessão ausente, inválido, expirado ou já desconectado                                           |
+| 403    | `AGE_REQUIRED`        | Sessão válida, maioridade ainda não declarada ([ADR-0019](docs/adr/0019-idade-por-autodeclaracao.md))    |
+| 403    | `TERMS_REQUIRED`      | Falta aceitar a versão vigente dos documentos ([ADR-0016](docs/adr/0016-aceite-de-termos-por-versao.md)) |
+| 403    | `ADMIN_ONLY`          | Rota de moderação sem `is_admin`                                                                         |
+| 404    | `NOT_FOUND`           | Vídeo inexistente, bloqueado por denúncia, ou `id` fora do padrão                                        |
+| 404    | `ROUTE_NOT_FOUND`     | Rota que não existe, ou método não previsto                                                              |
+| 413    | `PAYLOAD_TOO_LARGE`   | Corpo acima de 4kb em `/api/auth` ou `/api/reports`                                                      |
+| 429    | `TOO_MANY_ATTEMPTS`   | Conta bloqueada por erros de senha                                                                       |
+| 429    | `TOO_MANY_REPORTS`    | Mais de 10 denúncias na última hora, pela mesma conta                                                    |
+
 | 502 | `UPSTREAM_UNAVAILABLE` | API externa respondeu erro ou caiu |
 | 504 | `UPSTREAM_TIMEOUT` | API externa passou de `UPSTREAM_TIMEOUT_MS` |
 | 500 | `INTERNAL_ERROR` | Qualquer outra coisa |
 
 ## Limitações conhecidas
 
-| Limitação | Detalhe |
-| --- | --- |
-| Miniaturas em 320x180 | A API ignora `thumbsize=large_hd` e só devolve 320x180; reescrever a URL quebra a assinatura (HTTP 471). O banner da Home fica borrado — não é bug do front. Ver [ADR-0009](docs/adr/0009-miniaturas-320x180.md) |
-| `poster` igual ao `backdrop` | A API não tem imagem vertical, então o Top 10 recebe uma imagem 16:9 |
-| URLs de imagem expiram em ~24h | São assinadas pela CDN. O cache de 10 min não é afetado, mas `Title` guardado no `localStorage` do front mostra imagem quebrada depois de um dia |
-| `hasMore` é estimativa | A API não informa o total; vale `items.length > 0 && page < 50` e pode prometer página seguinte vazia |
-| Cache morre no reinício | É em memória, de propósito. No plano gratuito do Render o serviço dorme em ~15 min. Ver [ADR-0004](docs/adr/0004-nao-armazenar-nada-cache-em-memoria.md) |
-| `type` e `maturity` são fixos | `'movie'` e `'18'`: a API não distingue tipo, e todo o acervo é adulto. Ver [ADR-0006](docs/adr/0006-converter-para-o-contrato-title.md) |
-| Fixtures envelhecem em silêncio | `test/fixtures/` guarda respostas reais de 05/11/2026; nada avisa quando a API mudar. Ver [ADR-0008](docs/adr/0008-fixtures-com-respostas-reais.md) |
-| A API é bloqueada por região | O Pornhub bloqueia vários estados dos EUA pelo IP do servidor. `/api/health` funcionando com `/api/categories` em 502 = região errada |
-| Sem cadastro e sem "esqueci a senha" | Fora do escopo: criar conta exigiria moderação, e recuperar senha exigiria enviar e-mail |
-| Login sem `RECAPTCHA_SECRET` | O captcha não é exigido, e o boot avisa. Força bruta é contida só pelo bloqueio por conta. Ver [ADR-0014](docs/adr/0014-captcha-exigido-so-com-secret.md) |
-| **Sem provedor de idade, ninguém entra** | `AGE_PROVIDER_URL` em branco faz `/api/age/session` devolver 503, e o catálogo exige idade verificada. É fail-closed de propósito. Ver [ADR-0015](docs/adr/0015-verificacao-de-idade-no-servidor.md) |
-| O formato do provedor de idade é **esperado** | Corpo da sessão, do webhook e nome do cabeçalho de assinatura foram escritos contra um formato provável, não contra uma API real. `ageService.js` é um arquivo só justamente para isso |
-| Textos legais são rascunho | `src/config/legal.js` tem a versão; os textos estão no front e **não passaram por advogado**. Ver [ADR-0016](docs/adr/0016-aceite-de-termos-por-versao.md) |
-| Lista de bloqueados é por processo | Fica em memória e é relida a cada 6h. Com mais de uma instância, o bloqueio feito em uma demora até um ciclo para chegar nas outras. Ver [ADR-0017](docs/adr/0017-denuncia-remocao-e-bloqueio.md) |
-| Ninguém analisa a fila de denúncias | O mecanismo está pronto, e `is_admin` não está marcado para nenhuma conta |
-| Qualquer conta tira vídeo do ar | Dez por hora, escolhendo `menor`. É abuso fácil, e é a escolha certa: falso positivo custa um vídeo, falso negativo é crime no ar |
-| O SQL nunca rodou nesta máquina | Não há Postgres, Docker nem `psql` aqui: os testes de SQL só rodam com `TEST_DATABASE_URL`. Ver [ADR-0013](docs/adr/0013-postgres-gerenciado-no-lugar-do-sqlite.md) |
-| Origem fora do ar por mais de 1h | O cache expirado deixa de ser servido e a resposta passa a ser 502/504, de propósito: dado inverificável pode listar vídeo já removido na origem. Ver [ADR-0018](docs/adr/0018-teto-do-cache-e-registro-de-acesso.md) |
-| A faxina do registro de acesso roda no processo | Uma vez por dia, por temporizador. Não há tarefa agendada por fora |
+| Limitação                                       | Detalhe                                                                                                                                                                                                                                                                                                                        |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Miniaturas em 320x180                           | A API ignora `thumbsize=large_hd` e só devolve 320x180; reescrever a URL quebra a assinatura (HTTP 471). O banner da Home fica borrado — não é bug do front. Ver [ADR-0009](docs/adr/0009-miniaturas-320x180.md)                                                                                                               |
+| `poster` igual ao `backdrop`                    | A API não tem imagem vertical, então o Top 10 recebe uma imagem 16:9                                                                                                                                                                                                                                                           |
+| URLs de imagem expiram em ~24h                  | São assinadas pela CDN. O cache de 10 min não é afetado, mas `Title` guardado no `localStorage` do front mostra imagem quebrada depois de um dia                                                                                                                                                                               |
+| `hasMore` é estimativa                          | A API não informa o total; vale `items.length > 0 && page < 50` e pode prometer página seguinte vazia                                                                                                                                                                                                                          |
+| Cache morre no reinício                         | É em memória, de propósito. No plano gratuito do Render o serviço dorme em ~15 min. Ver [ADR-0004](docs/adr/0004-nao-armazenar-nada-cache-em-memoria.md)                                                                                                                                                                       |
+| `type` e `maturity` são fixos                   | `'movie'` e `'18'`: a API não distingue tipo, e todo o acervo é adulto. Ver [ADR-0006](docs/adr/0006-converter-para-o-contrato-title.md)                                                                                                                                                                                       |
+| Fixtures envelhecem em silêncio                 | `test/fixtures/` guarda respostas reais de 05/11/2026; nada avisa quando a API mudar. Ver [ADR-0008](docs/adr/0008-fixtures-com-respostas-reais.md)                                                                                                                                                                            |
+| A API é bloqueada por região                    | O Pornhub bloqueia vários estados dos EUA pelo IP do servidor. `/api/health` funcionando com `/api/categories` em 502 = região errada                                                                                                                                                                                          |
+| Sem cadastro e sem "esqueci a senha"            | Fora do escopo: criar conta exigiria moderação, e recuperar senha exigiria enviar e-mail                                                                                                                                                                                                                                       |
+| Login sem `RECAPTCHA_SECRET`                    | O captcha não é exigido, e o boot avisa. Força bruta é contida só pelo bloqueio por conta. Ver [ADR-0014](docs/adr/0014-captcha-exigido-so-com-secret.md)                                                                                                                                                                      |
+| **A idade não é verificada, é declarada**       | Qualquer menor de idade entra marcando a caixa: não pedimos documento nem foto. É a decisão do projeto, com os custos escritos na [ADR-0019](docs/adr/0019-idade-por-autodeclaracao.md). Se a lei exigir verificação por meio idôneo, o caminho de volta está na [ADR-0015](docs/adr/0015-verificacao-de-idade-no-servidor.md) |
+| Textos legais são rascunho                      | `src/config/legal.js` tem a versão; os textos estão no front e **não passaram por advogado**. Ver [ADR-0016](docs/adr/0016-aceite-de-termos-por-versao.md)                                                                                                                                                                     |
+| Lista de bloqueados é por processo              | Fica em memória e é relida a cada 6h. Com mais de uma instância, o bloqueio feito em uma demora até um ciclo para chegar nas outras. Ver [ADR-0017](docs/adr/0017-denuncia-remocao-e-bloqueio.md)                                                                                                                              |
+| Ninguém analisa a fila de denúncias             | O mecanismo está pronto, e `is_admin` não está marcado para nenhuma conta                                                                                                                                                                                                                                                      |
+| Qualquer conta tira vídeo do ar                 | Dez por hora, escolhendo `menor`. É abuso fácil, e é a escolha certa: falso positivo custa um vídeo, falso negativo é crime no ar                                                                                                                                                                                              |
+| O SQL nunca rodou nesta máquina                 | Não há Postgres, Docker nem `psql` aqui: os testes de SQL só rodam com `TEST_DATABASE_URL`. Ver [ADR-0013](docs/adr/0013-postgres-gerenciado-no-lugar-do-sqlite.md)                                                                                                                                                            |
+| Origem fora do ar por mais de 1h                | O cache expirado deixa de ser servido e a resposta passa a ser 502/504, de propósito: dado inverificável pode listar vídeo já removido na origem. Ver [ADR-0018](docs/adr/0018-teto-do-cache-e-registro-de-acesso.md)                                                                                                          |
+| A faxina do registro de acesso roda no processo | Uma vez por dia, por temporizador. Não há tarefa agendada por fora                                                                                                                                                                                                                                                             |
 
 ## Deploy
 
 Render, Web Service no plano gratuito, **região fora dos EUA** (Frankfurt). Ver
 [ADR-0010](docs/adr/0010-deploy-no-render-fora-dos-eua.md) para o porquê.
 
-| Campo | Valor |
-| --- | --- |
-| Build Command | `npm install` |
-| Start Command | `npm start` |
-| Health Check Path | `/api/health` |
-| Auto-Deploy | On Commit (`main`) |
+| Campo             | Valor              |
+| ----------------- | ------------------ |
+| Build Command     | `npm install`      |
+| Start Command     | `npm start`        |
+| Health Check Path | `/api/health`      |
+| Auto-Deploy       | On Commit (`main`) |
 
 Variáveis a cadastrar: `NODE_VERSION=22` (obrigatória), `CORS_ORIGINS` com a
 URL do front publicado, `RECAPTCHA_SECRET` (sem ela **todo login é recusado** em
@@ -282,7 +288,7 @@ src/
 │   ├── errors.js           # erros com status e código
 │   ├── errorHandler.js     # 404 de rota e formato único de erro
 │   ├── requireAuth.js      # Authorization: Bearer → req.user
-│   ├── requireAdult.js     # barra idade não verificada (403 AGE_REQUIRED)
+│   ├── requireAdult.js     # barra quem não declarou maioridade (AGE_REQUIRED)
 │   ├── requireTerms.js     # barra termos não aceitos (403 TERMS_REQUIRED)
 │   └── requireAdmin.js     # barra quem não tem is_admin
 ├── mappers/
@@ -290,7 +296,7 @@ src/
 ├── routes/
 │   ├── index.js            # rotas /api — **a ordem aqui é a regra de acesso**
 │   ├── auth.js             # rotas /api/auth
-│   ├── age.js              # rotas /api/age (fora da barreira de idade)
+
 │   └── reports.js          # denúncia e moderação
 ├── services/
 │   ├── cache.js            # cache em memória (TTL + idade da entrada)
@@ -298,9 +304,9 @@ src/
 │   ├── videosService.js    # regras de cada endpoint + filtro de bloqueados
 │   ├── password.js         # scrypt + timingSafeEqual
 │   ├── captchaService.js   # confere o reCAPTCHA no Google
-│   ├── usersService.js     # SQL de contas, sessões e aceites
+│   ├── usersService.js     # SQL de contas, sessões, declaração e aceites
 │   ├── authService.js      # login, bloqueio e sessão
-│   ├── ageService.js       # único lugar que fala com o provedor de idade
+
 │   ├── reportsService.js   # SQL de denúncias e bloqueios
 │   ├── moderationService.js # regras da denúncia (motivos, limite, bloqueio)
 │   └── accessLogService.js # registro de acesso do Marco Civil
@@ -316,12 +322,14 @@ docs/
 ## Diário de progresso
 
 ### 05/11/2026 — Estrutura inicial
+
 - Endpoints `health`, `home`, `videos`, `videos/:id`, `categories`.
 - Cliente da API com timeout, cache e reaproveitamento de resposta expirada quando a API falha.
 - Conversão para o contrato `Title` do front.
 - Testes de conversão, cliente, cache e regras dos endpoints.
 
 ### 05/11/2026 — Dados reais, correções e ADRs
+
 - **Fixtures trocadas por respostas reais** da API (`search`, `video_by_id`, `categories`).
   A comparação revelou que a documentação pública está desatualizada: `video_id` é
   hash (`6ae9db5a2d16a`) e não `ph...`, e `rating` vem número, não texto.
@@ -342,6 +350,7 @@ docs/
   de criação tomou sem explicar o porquê.
 
 ### 05/11/2026 — No ar no Render
+
 Publicado em <https://be-wiseup-one-api.onrender.com/api>.
 
 - O primeiro deploy falhou: `NODE_VERSION` estava com `12` (não `22`), o Render
@@ -360,6 +369,7 @@ Publicado em <https://be-wiseup-one-api.onrender.com/api>.
   o maior risco do deploy (ver [ADR-0010](docs/adr/0010-deploy-no-render-fora-dos-eua.md)).
 
 ### 05/11/2026 — Autenticação real (Etapas 1 a 4 do plano)
+
 Login deixou de ser teatro: a senha passa a ser conferida aqui, no servidor.
 São as Etapas 1 a 4 do plano de autenticação (as Etapas 5 a 7 são no front e no
 deploy).
@@ -426,13 +436,12 @@ Com o widget removido do front e o catálogo recém-fechado, exigir
 captcha é exigido **só quando existe `RECAPTCHA_SECRET`** para conferi-lo.
 Exigir um token que ninguém verifica é teatro.
 
-**Idade verificada no servidor ([ADR-0015](docs/adr/0015-verificacao-de-idade-no-servidor.md)).**
-Três colunas em `users` e nada mais: que passou, quando e por qual método.
-Documento, foto, CPF e data de nascimento **não entram no banco** — quem
-verifica é o provedor. O webhook é autenticado por HMAC-SHA256 do **corpo cru**
-(`JSON.stringify` não reproduz os bytes assinados). `AGE_DEV_AUTOVERIFY` existe
-para o front ser desenvolvível antes do contrato, e é **ignorada em produção**,
-com teste garantindo o 503 lá.
+**Idade verificada no servidor ([ADR-0015](docs/adr/0015-verificacao-de-idade-no-servidor.md)),
+_substituída no mesmo dia pela autodeclaração — ver a entrada seguinte_.** Três
+colunas em `users` e nada mais: que passou, quando e por qual método. Documento,
+foto, CPF e data de nascimento **não entravam no banco** — quem verificaria era
+o provedor, com webhook autenticado por HMAC-SHA256 do **corpo cru**
+(`JSON.stringify` não reproduz os bytes assinados).
 
 **Aceite por versão ([ADR-0016](docs/adr/0016-aceite-de-termos-por-versao.md)).**
 Uma linha por documento e versão, e nada é apagado quando sai versão nova: é o
@@ -461,33 +470,75 @@ dessas colunas é a decisão, não uma etapa para depois.
 - **Bug encontrado por teste de rota:** `review` com `improcede` respondia
   `blocked: true` quando nada estava bloqueado — reportava o resultado do
   desbloqueio em vez do estado do vídeo. Corrigido no mesmo commit.
-- **Fora do código, e sem isso nada funciona:** contratar o provedor de idade,
-  cadastrar `DATABASE_URL` e as três variáveis `AGE_*` no Render, mandar os
-  textos legais para revisão jurídica e marcar `is_admin` para alguém.
+- **Fora do código, e sem isso nada funciona:** cadastrar `DATABASE_URL` no
+  Render, mandar os textos legais para revisão jurídica e marcar `is_admin`
+  para alguém.
+
+### 05/11/2026 — A idade passou a ser declarada, não verificada
+
+Decisão do projeto, no mesmo dia da fase que montou a verificação por provedor:
+**sem documento e sem foto**. A pessoa declara que tem 18 anos ou mais, e o
+provedor saiu do código. A
+[ADR-0019](docs/adr/0019-idade-por-autodeclaracao.md) registra a decisão inteira,
+inclusive o que ela custa.
+
+**Uma transação, dois registros.** `POST /api/auth/accept` grava a declaração de
+maioridade e o aceite dos documentos juntos, porque na tela é uma caixa de
+seleção só: não pode existir estado em que uma passou e a outra não. Ficam dois
+registros distintos de propósito — a declaração em `users`, o aceite por
+documento e versão em `terms_acceptances` —, para que versão nova dos textos
+peça aceite novo **sem** pedir a declaração outra vez.
+
+**O que entrou no banco:** `age_verified_at`, `age_method`
+(`'autodeclaracao'`) e `age_declared_ip`. Numa declaração, a data e o IP são
+toda a evidência que existe. **O que não entrou, e não vai entrar:** coluna de
+documento, foto, CPF ou data de nascimento. Não é "ainda não" — é a decisão, e
+um teste em `authService.test.js` falha se alguém acrescentar um campo com esse
+nome.
+
+**O adaptador morreu inteiro.** Saíram `ageService.js`, `routes/age.js`, o
+webhook assinado, as quatro variáveis `AGE_*` e os testes deles — 176 linhas de
+teste de provedor incluídas. Um teste novo confirma que `/api/age/*` responde
+404: adaptador morto que continua aceitando requisição é pior do que adaptador
+nenhum. A ADR-0015 ficou de pé, marcada como **parcialmente substituída**, e
+`age_method` continua existindo justamente para que uma conta liberada por
+declaração e outra por provedor possam conviver na mesma tabela se a lei exigir.
+
+**A primeira coisa que o `app.js` deixou de fazer** foi capturar o corpo cru das
+requisições (`req.rawBody`): ele existia só para conferir a assinatura do
+webhook. Sem webhook, guardar o corpo cru de toda requisição seria peso e
+superfície de graça.
+
+- 98 testes passando, 18 pulados (SQL, com `TEST_DATABASE_URL`), `npx eslint .`
+  limpo.
+- **O custo, escrito onde não dá para não ver:** autodeclaração não verifica
+  nada. Qualquer menor de idade entra marcando a caixa. A proteção que resta é o
+  aviso claro, a declaração registrada, o catálogo fechado por sessão
+  (ADR-0012), nenhuma miniatura antes da porta e a denúncia que remove na hora
+  (ADR-0017).
+- **Efeito no front, no mesmo dia:** os Termos diziam que "não aceitamos
+  declaração de idade por caixa de seleção". Era verdade quando foi escrito e
+  virou mentira com esta decisão — reescrito no mesmo commit de lá. Documento
+  legal que promete verificação inexistente é pior do que documento nenhum.
 
 ### Próximos passos
 
-Em ordem de quem bloqueia o quê. Os três primeiros são **impeditivos**: sem
-eles, ninguém entra no catálogo nem em produção.
+Em ordem de quem bloqueia o quê. Os dois primeiros são **impeditivos**: sem
+eles, ninguém entra em produção.
 
 1. **Criar o Postgres gerenciado** e cadastrar `DATABASE_URL` no Render. Sem a
    variável o processo não sobe, de propósito.
-2. **Contratar o provedor de verificação de idade** e cadastrar
-   `AGE_PROVIDER_URL`, `AGE_PROVIDER_KEY` e `AGE_WEBHOOK_SECRET`. Depois,
-   conferir contra a documentação real o corpo da sessão, o corpo do webhook e o
-   nome do cabeçalho de assinatura — `ageService.js` é um arquivo só justamente
-   para esse ajuste ser pequeno.
-3. **Revisão jurídica** dos Termos e da Política de Privacidade (textos no
+2. **Revisão jurídica** dos Termos e da Política de Privacidade (textos no
    repositório do front, marcados como rascunho **na própria página**). Depois
    dela, atualizar a data em `src/config/legal.js` **uma vez**.
-4. **Marcar `is_admin`** para alguma conta, à mão no banco — sem isso a fila de
+3. **Marcar `is_admin`** para alguma conta, à mão no banco — sem isso a fila de
    denúncias não tem quem a olhe.
-5. Rodar os testes de SQL contra um Postgres de verdade
+4. Rodar os testes de SQL contra um Postgres de verdade
    (`TEST_DATABASE_URL=... npm test`): são 18 testes que nunca rodaram aqui.
-6. `CORS_ORIGINS` com a URL do front quando ele for publicado (hoje só
+5. `CORS_ORIGINS` com a URL do front quando ele for publicado (hoje só
    `http://localhost:5173`).
-7. **Captcha (opcional, ADR-0014):** registrar o site em
+6. **Captcha (opcional, ADR-0014):** registrar o site em
    <https://www.google.com/recaptcha/admin> (reCAPTCHA v2), cadastrar
    `RECAPTCHA_SECRET` aqui e voltar o widget no front. Enquanto a variável não
    existir, o captcha não é exigido e o boot avisa.
-8. **Etapa 5 (front):** `VITE_AUTH_MODE=api` e o botão "Excluir minha conta".
+7. **Etapa 5 (front):** `VITE_AUTH_MODE=api` e o botão "Excluir minha conta".

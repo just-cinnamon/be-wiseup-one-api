@@ -50,3 +50,37 @@ CREATE TABLE IF NOT EXISTS terms_acceptances (
   accepted_at TEXT NOT NULL,            -- ISO 8601
   PRIMARY KEY (user_id, document, version)
 );
+
+-- Denúncias (ADR-0017). `user_id` com ON DELETE SET NULL de propósito: apagar a
+-- conta não pode apagar a denúncia. Se alguém denuncia conteúdo com menor de
+-- idade e depois exclui a conta, a denúncia continua valendo — ela é sobre o
+-- vídeo, não sobre quem denunciou.
+CREATE TABLE IF NOT EXISTS reports (
+  id          TEXT PRIMARY KEY,
+  video_id    TEXT NOT NULL,
+  user_id     TEXT REFERENCES users(id) ON DELETE SET NULL,
+  reason      TEXT NOT NULL,
+  note        TEXT,
+  created_at  TEXT NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'aberta',  -- aberta | procede | improcede
+  reviewed_at TEXT,
+  reviewed_by TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_reports_video  ON reports(video_id);
+CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status, created_at);
+-- Serve o limite de denúncias por hora, que consulta por conta e data.
+CREATE INDEX IF NOT EXISTS idx_reports_user   ON reports(user_id, created_at);
+
+-- Vídeos tirados do catálogo. Lista pequena e consultada em toda requisição de
+-- catálogo, então fica em memória e é relida daqui (ADR-0017).
+CREATE TABLE IF NOT EXISTS blocked_videos (
+  video_id   TEXT PRIMARY KEY,
+  reason     TEXT NOT NULL,   -- denuncia | admin | origem-removeu
+  blocked_at TEXT NOT NULL,
+  report_id  TEXT
+);
+
+-- Quem pode analisar denúncia. Marcado à mão no banco: não existe rota que
+-- promova ninguém a administrador.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;

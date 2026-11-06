@@ -4,7 +4,8 @@ import { test } from 'node:test';
 import { createApp } from '../src/app.js';
 import { unauthorized } from '../src/http/errors.js';
 import { createAgeService } from '../src/services/ageService.js';
-import { fakeUsers } from './helpers.js';
+import { createModerationService } from '../src/services/moderationService.js';
+import { fakeReports, fakeUsers } from './helpers.js';
 
 /*
  * Testes de rota: quem passa e quem não passa (ADR-0012 e ADR-0015).
@@ -34,7 +35,7 @@ const fakeVideosService = {
  */
 async function withServer(
   run,
-  { ageVerified = true, termsAccepted = true, ageOptions = {} } = {}
+  { ageVerified = true, termsAccepted = true, isAdmin = false, ageOptions = {} } = {}
 ) {
   const users = fakeUsers();
   const { id } = await users.create({
@@ -73,6 +74,7 @@ async function withServer(
         termsAccepted: Object.entries(LEGAL).every(([document, version]) =>
           aceites.some((a) => a.document === document && a.version === version)
         ),
+        isAdmin,
       };
     },
     login: async () => ({ user: { id, email: EMAIL }, token: VALID_TOKEN }),
@@ -87,10 +89,17 @@ async function withServer(
     ...ageOptions,
   });
 
+  // Moderação de verdade sobre um armazém falso (ADR-0017): o que está sendo
+  // testado aqui é a rota, e trocar o serviço por um duplo deixaria de fora
+  // justamente o acoplamento entre rota e regra.
+  const reports = fakeReports();
+  const moderation = createModerationService({ reports, now: () => new Date(AGORA) });
+
   const app = createApp({
     videosService: fakeVideosService,
     authService,
     ageService,
+    moderation,
     users,
     legalVersions: LEGAL,
     corsOrigins: ['http://localhost:5173'],
@@ -98,7 +107,13 @@ async function withServer(
   const server = app.listen(0);
   await new Promise((resolve) => server.on('listening', resolve));
   try {
-    await run({ base: `http://127.0.0.1:${server.address().port}`, users, userId: id });
+    await run({
+      base: `http://127.0.0.1:${server.address().port}`,
+      users,
+      userId: id,
+      moderation,
+      reports,
+    });
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -447,5 +462,195 @@ test('a ordem das barreiras é idade e depois termos', async () => {
       assert.equal((await response.json()).error.code, 'AGE_REQUIRED');
     },
     { ageVerified: false, termsAccepted: false }
+  );
+});
+
+// ---- Denúncia (ADR-0017) ----
+
+const postJson = (token, body) => ({
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  },
+  body: JSON.stringify(body),
+});
+
+test('denunciar exige sessão, idade e termos', async () => {
+  await withServer(async ({ base }) => {
+    const semToken = await fetch(
+      `${base}/api/reports`,
+      postJson(null, { videoId: 'v1', reason: 'menor' })
+    );
+    assert.equal(semToken.status, 401);
+  });
+
+  await withServer(
+    async ({ base }) => {
+      const response = await fetch(
+        `${base}/api/reports`,
+        postJson(VALID_TOKEN, { videoId: 'v1', reason: 'menor' })
+      );
+      assert.equal(response.status, 403);
+      assert.equal((await response.json()).error.code, 'AGE_REQUIRED');
+    },
+    { ageVerified: false }
+  );
+
+  await withServer(
+    async ({ base }) => {
+      const response = await fetch(
+        `${base}/api/reports`,
+        postJson(VALID_TOKEN, { videoId: 'v1', reason: 'menor' })
+      );
+      assert.equal((await response.json()).error.code, 'TERMS_REQUIRED');
+    },
+    { termsAccepted: false }
+  );
+});
+
+test('denúncia de menor volta blocked: true, e o vídeo some do catálogo', async () => {
+  await withServer(async ({ base, moderation, reports }) => {
+    const response = await fetch(
+      `${base}/api/reports`,
+      postJson(VALID_TOKEN, { videoId: 'ph_abc123', reason: 'menor', note: 'urgente' })
+    );
+
+    assert.equal(response.status, 201);
+    const body = await response.json();
+    assert.equal(body.blocked, true);
+    assert.ok(body.id, 'a resposta traz o id da denúncia');
+
+    assert.equal(moderation.isBlocked('ph_abc123'), true);
+    assert.equal(reports.reports[0].note, 'urgente');
+    // A denúncia guarda quem denunciou, mas a resposta não devolve e-mail.
+    assert.ok(!JSON.stringify(body).includes(EMAIL));
+
+    // Que o vídeo bloqueado desapareça do catálogo e vire 404 no detalhe é
+    // testado em `videosService.test.js`: aqui o serviço de catálogo é um
+    // duplo, e afirmar isso contra ele não provaria nada.
+  });
+});
+
+test('motivo fora da lista é 400, e a lista de motivos é servida pela API', async () => {
+  await withServer(async ({ base, reports }) => {
+    const ruim = await fetch(
+      `${base}/api/reports`,
+      postJson(VALID_TOKEN, { videoId: 'v1', reason: 'nao_gostei' })
+    );
+    assert.equal(ruim.status, 400);
+    assert.equal((await ruim.json()).error.code, 'INVALID_PARAMS');
+    assert.equal(reports.reports.length, 0);
+
+    // O front monta o formulário com esta lista: duas listas divergiriam.
+    const motivos = await (
+      await fetch(`${base}/api/reports/reasons`, bearer(VALID_TOKEN))
+    ).json();
+    assert.ok(motivos.reasons.includes('menor'));
+    assert.ok(motivos.reasons.includes('sem_consentimento'));
+  });
+});
+
+test('a 11ª denúncia na hora é 429', async () => {
+  await withServer(async ({ base }) => {
+    for (let i = 0; i < 10; i += 1) {
+      const ok = await fetch(
+        `${base}/api/reports`,
+        postJson(VALID_TOKEN, { videoId: `video_${i}`, reason: 'outro' })
+      );
+      assert.equal(ok.status, 201);
+    }
+    const demais = await fetch(
+      `${base}/api/reports`,
+      postJson(VALID_TOKEN, { videoId: 'video_x', reason: 'outro' })
+    );
+    assert.equal(demais.status, 429);
+    assert.equal((await demais.json()).error.code, 'TOO_MANY_REPORTS');
+  });
+});
+
+test('as rotas de moderação exigem is_admin', async () => {
+  const caminhos = [
+    ['GET', '/api/reports/open'],
+    ['GET', '/api/reports/blocked'],
+  ];
+
+  await withServer(async ({ base }) => {
+    for (const [, path] of caminhos) {
+      const response = await fetch(`${base}${path}`, bearer(VALID_TOKEN));
+      assert.equal(response.status, 403, `${path} devia ser 403`);
+      assert.equal((await response.json()).error.code, 'ADMIN_ONLY');
+    }
+    const review = await fetch(
+      `${base}/api/reports/qualquer/review`,
+      postJson(VALID_TOKEN, { procede: true })
+    );
+    assert.equal(review.status, 403);
+    const block = await fetch(
+      `${base}/api/reports/block`,
+      postJson(VALID_TOKEN, { videoId: 'v1' })
+    );
+    assert.equal(block.status, 403);
+  });
+});
+
+test('administrador vê a fila, decide e o vídeo sai do catálogo', async () => {
+  await withServer(
+    async ({ base, moderation }) => {
+      const criada = await (
+        await fetch(
+          `${base}/api/reports`,
+          postJson(VALID_TOKEN, { videoId: 'ph_xyz', reason: 'violencia' })
+        )
+      ).json();
+      assert.equal(criada.blocked, false, 'violência não bloqueia antes da análise');
+
+      const fila = await (
+        await fetch(`${base}/api/reports/open`, bearer(VALID_TOKEN))
+      ).json();
+      assert.equal(fila.reports.length, 1);
+      assert.equal(fila.reports[0].id, criada.id);
+
+      const decisao = await fetch(
+        `${base}/api/reports/${criada.id}/review`,
+        postJson(VALID_TOKEN, { procede: true })
+      );
+      assert.equal(decisao.status, 200);
+      assert.deepEqual(await decisao.json(), { status: 'procede', blocked: true });
+      assert.equal(moderation.isBlocked('ph_xyz'), true);
+
+      const bloqueados = await (
+        await fetch(`${base}/api/reports/blocked`, bearer(VALID_TOKEN))
+      ).json();
+      assert.equal(bloqueados.blocked[0].video_id, 'ph_xyz');
+
+      // A fila esvaziou: denúncia analisada não volta.
+      const depois = await (
+        await fetch(`${base}/api/reports/open`, bearer(VALID_TOKEN))
+      ).json();
+      assert.equal(depois.reports.length, 0);
+    },
+    { isAdmin: true }
+  );
+});
+
+test('procede sem corpo é improcede: a decisão tem de ser explícita', async () => {
+  await withServer(
+    async ({ base, moderation }) => {
+      const { id } = await (
+        await fetch(
+          `${base}/api/reports`,
+          postJson(VALID_TOKEN, { videoId: 'ph_sem_corpo', reason: 'outro' })
+        )
+      ).json();
+
+      const decisao = await fetch(`${base}/api/reports/${id}/review`, {
+        method: 'POST',
+        ...bearer(VALID_TOKEN),
+      });
+      assert.deepEqual(await decisao.json(), { status: 'improcede', blocked: false });
+      assert.equal(moderation.isBlocked('ph_sem_corpo'), false);
+    },
+    { isAdmin: true }
   );
 });

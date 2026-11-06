@@ -95,3 +95,66 @@ test('getCategories', async () => {
   assert.deepEqual(cats[0], { id: 37, slug: '18-25', name: '18-25' });
   assert.deepEqual(cats[1], { id: 622, slug: '180-1', name: '180' });
 });
+
+// ---- Vídeo bloqueado (ADR-0017) ----
+
+/** Moderação falsa: só o que o `videosService` consulta. */
+const comBloqueio = (...ids) => ({ isBlocked: (id) => ids.includes(String(id)) });
+
+test('vídeo bloqueado não aparece na Home nem na busca', async () => {
+  const service = createVideosService({
+    client: fakeClient(),
+    moderation: comBloqueio(FIRST_ID),
+  });
+
+  const home = await service.getHome();
+  assert.equal(home.top10.length, FIXTURE_VIDEOS - 1);
+  assert.ok(
+    home.top10.every((t) => t.id !== FIRST_ID),
+    'o bloqueado saiu do Top 10'
+  );
+  assert.ok(home.rows.every((r) => r.items.every((t) => t.id !== FIRST_ID)));
+
+  // O destaque era justamente o bloqueado: a Home promove o próximo, em vez de
+  // mostrar um destaque vazio.
+  assert.ok(home.featured);
+  assert.notEqual(home.featured.id, FIRST_ID);
+
+  const busca = await service.listVideos({});
+  assert.equal(busca.items.length, FIXTURE_VIDEOS - 1);
+  assert.ok(busca.items.every((t) => t.id !== FIRST_ID));
+});
+
+test('o detalhe de vídeo bloqueado é 404, e nem chega à origem', async () => {
+  const client = fakeClient();
+  const service = createVideosService({ client, moderation: comBloqueio(FIRST_ID) });
+
+  await assert.rejects(() => service.getVideo(FIRST_ID), { status: 404 });
+  // 404 e não 403: dizer "bloqueado" confirmaria que o vídeo existe e contaria
+  // o que a denúncia conseguiu.
+  assert.equal(
+    client.calls.filter(([nome]) => nome === 'videoById').length,
+    0,
+    'bloqueado não gera chamada à origem'
+  );
+});
+
+test('sem moderação, o catálogo segue inteiro', async () => {
+  const service = createVideosService({ client: fakeClient() });
+  const home = await service.getHome();
+  assert.equal(home.top10.length, FIXTURE_VIDEOS);
+  assert.equal(home.featured.id, FIRST_ID);
+});
+
+test('se todos os vídeos estiverem bloqueados, a Home vem vazia sem quebrar', async () => {
+  const todos = fixture('search').videos.map((v) => v.video_id);
+  const service = createVideosService({
+    client: fakeClient(),
+    moderation: comBloqueio(...todos),
+  });
+
+  const home = await service.getHome();
+  assert.equal(home.featured, null);
+  assert.equal(home.top10.length, 0);
+  assert.ok(home.rows.every((r) => r.items.length === 0));
+});

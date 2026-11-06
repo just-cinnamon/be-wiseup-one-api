@@ -45,6 +45,36 @@ export function createDatabase({ connectionString, sslInsecure = false, max = 5 
     /** @param {string} text @param {unknown[]} [params] */
     query: (text, params) => pool.query(text, params),
 
+    /**
+     * Roda várias consultas na **mesma conexão**, dentro de uma transação
+     * (ADR-0017). Existe porque gravar a denúncia e bloquear o vídeo têm de
+     * acontecer juntos: denúncia registrada com vídeo ainda no ar é pior do que
+     * nenhuma das duas.
+     *
+     * `pool.query` pega uma conexão qualquer a cada chamada, então `BEGIN` e
+     * `COMMIT` soltos não garantiriam nada.
+     *
+     * @param {(tx: { query: (text: string, params?: unknown[]) => Promise<any> }) => Promise<any>} fn
+     */
+    async transaction(fn) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const result = await fn({
+          query: (text, params) => client.query(text, params),
+        });
+        await client.query('COMMIT');
+        return result;
+      } catch (error) {
+        // Se o ROLLBACK também falhar (conexão morta), o erro original é o que
+        // interessa: é ele que diz o que deu errado.
+        await client.query('ROLLBACK').catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+
     /** Cria as tabelas, se faltarem. Idempotente: roda em todo boot. */
     applySchema: () => pool.query(schema),
 

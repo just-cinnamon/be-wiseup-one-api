@@ -173,6 +173,8 @@ export function createAuthService({
         ageVerified: Boolean(session.age_verified_at),
         // Os dois documentos, na versão vigente: um aceite só não basta.
         termsAccepted: Number(session.accepted_count ?? 0) >= 2,
+        // Moderação (ADR-0017). Ausente é "não", como em todo o resto.
+        isAdmin: Boolean(session.is_admin),
       };
     },
 

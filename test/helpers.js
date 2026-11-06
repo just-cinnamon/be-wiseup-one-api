@@ -171,3 +171,108 @@ export function fakeUsers() {
 
   return store;
 }
+
+/**
+ * `reportsService` falso, em memória (ADR-0017). Mesma razão do `fakeUsers`:
+ * as regras de denúncia — motivos aceitos, limite por hora, o que bloqueia na
+ * hora — não precisam de um Postgres de pé para serem testadas.
+ *
+ * `createMaybeBlocking` aqui não é transacional, e não precisa ser: o que o
+ * teste verifica é a **regra** (este motivo bloqueia, aquele não). Que as duas
+ * escritas aconteçam juntas é problema do SQL, coberto em
+ * `reportsService.test.js` com TEST_DATABASE_URL.
+ */
+export function fakeReports() {
+  const reports = [];
+  const blocked = new Map();
+
+  return {
+    reports,
+    blocked,
+
+    async createMaybeBlocking({
+      id,
+      videoId,
+      userId,
+      reason,
+      note,
+      createdAt,
+      blockNow,
+    }) {
+      reports.push({
+        id,
+        video_id: videoId,
+        user_id: userId,
+        reason,
+        note,
+        created_at: createdAt,
+        status: 'aberta',
+        reviewed_at: null,
+        reviewed_by: null,
+      });
+      if (!blockNow) return { id, blocked: false };
+      if (!blocked.has(videoId)) {
+        blocked.set(videoId, {
+          video_id: videoId,
+          reason: 'denuncia',
+          blocked_at: createdAt,
+          report_id: id,
+        });
+      }
+      return { id, blocked: true };
+    },
+
+    async countByUserSince(userId, sinceIso) {
+      return reports.filter((r) => r.user_id === userId && r.created_at >= sinceIso)
+        .length;
+    },
+
+    async listOpen({ limit = 100 } = {}) {
+      return reports
+        .filter((r) => r.status === 'aberta')
+        .sort((a, b) => a.created_at.localeCompare(b.created_at))
+        .slice(0, limit);
+    },
+
+    async findById(id) {
+      return reports.find((r) => r.id === id);
+    },
+
+    async review({ id, status, reviewedAt, reviewedBy }) {
+      const report = reports.find((r) => r.id === id && r.status === 'aberta');
+      if (!report) return false;
+      Object.assign(report, {
+        status,
+        reviewed_at: reviewedAt,
+        reviewed_by: reviewedBy,
+      });
+      return true;
+    },
+
+    async block({ videoId, reason, blockedAt, reportId = null }) {
+      if (blocked.has(videoId)) return; // ON CONFLICT DO NOTHING
+      blocked.set(videoId, {
+        video_id: videoId,
+        reason,
+        blocked_at: blockedAt,
+        report_id: reportId,
+      });
+    },
+
+    async unblockFromReport({ videoId, reportId }) {
+      const atual = blocked.get(videoId);
+      if (!atual || atual.reason !== 'denuncia' || atual.report_id !== reportId)
+        return false;
+      blocked.delete(videoId);
+      return true;
+    },
+
+    async listBlockedIds() {
+      return [...blocked.keys()];
+    },
+
+    async listBlocked() {
+      return [...blocked.values()];
+    },
+  };
+}

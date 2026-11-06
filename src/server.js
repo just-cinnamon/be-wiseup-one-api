@@ -9,7 +9,9 @@ import { createAgeService } from './services/ageService.js';
 import { createAuthService } from './services/authService.js';
 import { createCache } from './services/cache.js';
 import { createCaptchaService } from './services/captchaService.js';
+import { createModerationService } from './services/moderationService.js';
 import { createPornhubClient } from './services/pornhubClient.js';
+import { createReportsService } from './services/reportsService.js';
 import { createUsersService } from './services/usersService.js';
 import { createVideosService } from './services/videosService.js';
 
@@ -19,7 +21,6 @@ const client = createPornhubClient({
   timeoutMs: env.upstreamTimeoutMs,
   cache,
 });
-const videosService = createVideosService({ client });
 
 // Banco (ADR-0013) e autenticação (ADR-0011).
 const db = createDatabase({
@@ -27,6 +28,19 @@ const db = createDatabase({
   sslInsecure: env.databaseSslInsecure,
 });
 await db.applySchema();
+
+/*
+ * Moderação (ADR-0017). Vem antes do `videosService` de propósito: o serviço de
+ * catálogo recebe o filtro de bloqueados no construtor, e assim não existe
+ * caminho em que o catálogo seja montado sem ele.
+ */
+const moderation = createModerationService({
+  reports: createReportsService({ db }),
+  client,
+});
+console.log(`Moderação: ${await moderation.refresh()} vídeo(s) fora do catálogo.`);
+
+const videosService = createVideosService({ client, moderation });
 
 const users = createUsersService({ db });
 const captchaService = createCaptchaService({
@@ -78,10 +92,39 @@ const app = createApp({
   videosService,
   authService,
   ageService,
+  moderation,
   users,
   legalVersions: LEGAL_VERSIONS,
   corsOrigins: env.corsOrigins,
 });
+
+/*
+ * Sincronismo com a origem (ADR-0017): o que a plataforma apagou sai daqui
+ * também. Roda no boot e a cada 6 horas.
+ *
+ * `unref()` para o temporizador não segurar o processo no encerramento, e
+ * `refresh()` depois de cada rodada porque, com mais de uma instância, o
+ * bloqueio feito em outra só chega por aqui.
+ */
+const SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+async function sincronizarOrigem() {
+  const { blocked, skipped, failed } = await moderation.syncWithOrigin({ pages: 2 });
+  await moderation.refresh();
+  if (skipped) return;
+  console.log(
+    failed
+      ? `Sincronismo com a origem falhou; ${blocked} bloqueio(s) antes da falha.`
+      : `Sincronismo com a origem: ${blocked} vídeo(s) novo(s) bloqueado(s).`
+  );
+}
+
+await sincronizarOrigem();
+setInterval(() => {
+  sincronizarOrigem().catch((error) =>
+    console.error('Sincronismo com a origem lançou:', error.message)
+  );
+}, SYNC_INTERVAL_MS).unref();
 
 app.listen(env.port, () => {
   console.log(`API rodando em http://localhost:${env.port}/api`);

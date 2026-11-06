@@ -64,3 +64,17 @@ export const termsRequired = () =>
     'TERMS_REQUIRED',
     'Aceite os Termos de Uso e a Política de Privacidade para continuar.'
   );
+
+// Denúncia e moderação (ADR-0017).
+
+/** Limite de denúncias por hora, por conta. */
+export const tooManyReports = () =>
+  new AppError(
+    429,
+    'TOO_MANY_REPORTS',
+    'Você fez muitas denúncias na última hora. Tente novamente mais tarde.'
+  );
+
+/** Rota de análise de denúncia, com conta que não é de administrador. */
+export const adminOnly = () =>
+  new AppError(403, 'ADMIN_ONLY', 'Esta área é restrita à moderação.');

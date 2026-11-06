@@ -267,10 +267,11 @@ test('token válido vira usuário; token inválido dá 401', async () => {
   assert.deepEqual(await authService.getSessionUser(token), {
     id: user.id,
     email: EMAIL,
-    // Conta nova nunca nasce verificada nem com termos aceitos (ADR-0015,
-    // ADR-0016).
+    // Conta nova nunca nasce verificada, com termos aceitos nem administradora
+    // (ADR-0015, ADR-0016, ADR-0017).
     ageVerified: false,
     termsAccepted: false,
+    isAdmin: false,
   });
 
   for (const ruim of ['', 'curto', `${token}x`, null, undefined, 'y'.repeat(201)]) {

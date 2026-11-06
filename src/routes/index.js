@@ -4,6 +4,7 @@ import { requireAdult } from '../http/requireAdult.js';
 import { requireTerms } from '../http/requireTerms.js';
 import { createAgeRoutes } from './age.js';
 import { createAuthRoutes } from './auth.js';
+import { createReportsRoutes } from './reports.js';
 
 /**
  * Todas as rotas da API, montadas em /api.
@@ -17,6 +18,7 @@ export function createRoutes({
   videosService,
   authService,
   ageService,
+  moderation,
   users,
   legalVersions = {},
 }) {
@@ -74,6 +76,13 @@ export function createRoutes({
   router.get('/categories', cacheFor(86400), async (req, res) => {
     res.json(await videosService.getCategories());
   });
+
+  // Denúncia (ADR-0017). Sem `moderation` a rota não existe, em vez de existir
+  // e aceitar denúncia que ninguém guarda — o que seria pior do que não ter
+  // botão: a pessoa acreditaria ter denunciado.
+  if (moderation) {
+    router.use('/reports', createReportsRoutes({ moderation }));
+  }
 
   return router;
 }

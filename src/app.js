@@ -8,6 +8,7 @@ export function createApp({
   videosService,
   authService,
   ageService,
+  moderation,
   users,
   legalVersions,
   corsOrigins,
@@ -37,11 +38,12 @@ export function createApp({
     next();
   });
 
-  // Corpo JSON só onde existe corpo: /api/auth e /api/age. Limite pequeno
-  // porque o maior campo é o token do reCAPTCHA, de alguns milhares de bytes.
+  // Corpo JSON só onde existe corpo: /api/auth, /api/age e /api/reports. O
+  // catálogo é todo GET e não ganha parser. Limite pequeno porque o maior
+  // campo é a observação da denúncia, de 500 caracteres.
   // O no-store vem antes do parser para valer também quando o JSON é inválido.
   app.use(
-    ['/api/auth', '/api/age'],
+    ['/api/auth', '/api/age', '/api/reports'],
     (req, res, next) => {
       res.set('Cache-Control', 'no-store');
       next();
@@ -59,7 +61,14 @@ export function createApp({
 
   app.use(
     '/api',
-    createRoutes({ videosService, authService, ageService, users, legalVersions })
+    createRoutes({
+      videosService,
+      authService,
+      ageService,
+      moderation,
+      users,
+      legalVersions,
+    })
   );
   app.use(notFoundHandler);
   app.use(errorHandler);

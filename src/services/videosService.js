@@ -12,10 +12,19 @@ const videosOf = (data) => (Array.isArray(data?.videos) ? data.videos : []);
 /**
  * Regras de cada endpoint, sem nada de Express.
  * Recebe o cliente da API por parâmetro (nos testes, um cliente falso).
+ *
+ * `moderation` é opcional e, quando existe, **filtra o catálogo** (ADR-0017):
+ * vídeo bloqueado não aparece em fileira, em busca nem no detalhe. O filtro
+ * fica aqui, num lugar só, porque Home, busca e detalhe passam todos por este
+ * serviço — espalhar a checagem pelas rotas é como se esquece de uma.
  */
-export function createVideosService({ client }) {
+export function createVideosService({ client, moderation = null }) {
+  const blocked = (id) => Boolean(moderation?.isBlocked(id));
+
   async function list(params) {
-    return videosOf(await client.search(params)).map((v) => toTitle(v));
+    return videosOf(await client.search(params))
+      .map((v) => toTitle(v))
+      .filter((title) => !blocked(title.id));
   }
 
   /** Valida a query string de GET /api/videos. Lança 400 se algo for inválido. */
@@ -74,6 +83,10 @@ export function createVideosService({ client }) {
 
     async getVideo(id) {
       if (!ID_PATTERN.test(String(id))) throw notFound();
+      // 404, e não 403: para quem pede, o vídeo bloqueado simplesmente não
+      // existe mais. Dizer "este vídeo foi bloqueado" seria confirmar que ele
+      // existe e informar o que a denúncia conseguiu.
+      if (blocked(id)) throw notFound();
       const data = await client.videoById(id);
       if (!data?.video?.video_id) throw notFound();
       return toTitleDetail(data.video);

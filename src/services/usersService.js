@@ -67,7 +67,7 @@ export function createUsersService({ db }) {
      */
     async findSession(tokenHash, versions) {
       const { rows } = await db.query(
-        `SELECT u.id, u.email, u.age_verified_at, s.expires_at,
+        `SELECT u.id, u.email, u.age_verified_at, u.is_admin, s.expires_at,
                 (SELECT COUNT(*) FROM terms_acceptances ta
                   WHERE ta.user_id = u.id
                     AND ((ta.document = 'termos' AND ta.version = $2)

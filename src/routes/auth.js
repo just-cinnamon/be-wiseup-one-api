@@ -34,16 +34,19 @@ export function createAuthRoutes({ authService, accessLog = null, legalVersions 
   });
 
   /**
-   * Aceite dos documentos legais (ADR-0016). Exige sessão e **não** exige
-   * termos aceitos — seria o cadeado trancando a chave dentro, como em /age.
+   * A única porta de entrada do catálogo (ADR-0019): a pessoa **declara** ser
+   * maior de 18 anos e aceita os documentos vigentes, num ato só.
    *
-   * Aceitar é um ato: não há corpo a validar, porque não há opção a escolher.
-   * Os dois documentos são obrigatórios, e a caixa de seleção que a pessoa
-   * marcou está na tela do front, não aqui.
+   * Exige sessão e **não** exige idade declarada nem termos aceitos — seria o
+   * cadeado trancando a chave dentro.
+   *
+   * Não há corpo a validar, porque não há opção a escolher: é uma caixa de
+   * seleção que diz as duas coisas, e ela fica na tela do front. O que o
+   * servidor guarda é que foi marcada, quando e de qual IP — numa declaração,
+   * isso é toda a evidência que existe.
    */
-  router.post('/accept-terms', requireAuth, async (req, res) => {
-    const { acceptedAt, versions } = await authService.acceptTerms(req.user.id);
-    res.json({ termsAccepted: true, acceptedAt, versions });
+  router.post('/accept', requireAuth, async (req, res) => {
+    res.json(await authService.acceptGate({ userId: req.user.id, ip: req.ip }));
   });
 
   router.post('/logout', requireAuth, async (req, res) => {

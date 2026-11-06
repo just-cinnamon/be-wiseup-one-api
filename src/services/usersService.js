@@ -88,38 +88,56 @@ export function createUsersService({ db }) {
       return rowCount > 0;
     },
 
-    // ---- Verificação de idade (ADR-0015) ----
+    // ---- Declaração de maioridade (ADR-0019) ----
 
     /**
-     * Guarda a referência da verificação em andamento. Não verifica nada: só
-     * anota qual identificação do provedor pertence a esta conta, para o
-     * webhook saber de quem está falando.
+     * Registra a declaração de maioridade: quando, por qual meio e de qual IP.
+     * Nenhum documento, foto, CPF ou data de nascimento — não existe coluna
+     * para isso neste banco.
+     *
+     * `WHERE age_verified_at IS NULL` deixa a operação idempotente **e**
+     * preserva a primeira declaração: declarar de novo não reescreve a data,
+     * porque a data que vale é a da declaração original.
      */
-    async setAgeRef(userId, { ref, method }) {
-      await db.query('UPDATE users SET age_ref = $1, age_method = $2 WHERE id = $3', [
-        ref,
-        method ?? null,
-        userId,
-      ]);
-    },
-
-    /** Conta cuja verificação em andamento tem esta referência. */
-    async findByAgeRef(ref) {
-      const { rows } = await db.query('SELECT * FROM users WHERE age_ref = $1', [ref]);
-      return rows[0];
-    },
-
-    /**
-     * Marca a idade como verificada. Guarda **só** quando, como e o ID no
-     * provedor — nunca documento, foto, CPF ou data de nascimento.
-     */
-    async setAgeVerified({ ref, verifiedAt, method }) {
+    async declareAdult({ userId, declaredAt, ip, method = 'autodeclaracao' }) {
       const { rowCount } = await db.query(
-        `UPDATE users SET age_verified_at = $1, age_method = COALESCE($2, age_method)
-          WHERE age_ref = $3 AND age_verified_at IS NULL`,
-        [verifiedAt, method ?? null, ref]
+        `UPDATE users
+            SET age_verified_at = $1, age_method = $2, age_declared_ip = $3
+          WHERE id = $4 AND age_verified_at IS NULL`,
+        [declaredAt, method, ip ?? null, userId]
       );
       return rowCount > 0;
+    },
+
+    /**
+     * Declaração de maioridade **e** aceite dos documentos, na mesma transação
+     * (ADR-0019). São uma única caixa de seleção na tela, e por isso não pode
+     * existir estado em que uma passou e a outra não.
+     *
+     * @param {{ userId: string, ip: string|null, at: string,
+     *   versions: Record<string, string> }} dados
+     */
+    async declareAdultAndAcceptTerms({ userId, ip, at, versions }) {
+      return db.transaction(async (tx) => {
+        await tx.query(
+          `UPDATE users
+              SET age_verified_at = $1, age_method = 'autodeclaracao',
+                  age_declared_ip = $2
+            WHERE id = $3 AND age_verified_at IS NULL`,
+          [at, ip ?? null, userId]
+        );
+
+        for (const [document, version] of Object.entries(versions)) {
+          await tx.query(
+            `INSERT INTO terms_acceptances (user_id, document, version, accepted_at)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (user_id, document, version) DO NOTHING`,
+            [userId, document, version, at]
+          );
+        }
+
+        return { at, versions: { ...versions } };
+      });
     },
 
     // ---- Aceite de termos (ADR-0016) ----

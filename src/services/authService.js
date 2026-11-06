@@ -179,16 +179,30 @@ export function createAuthService({
     },
 
     /**
-     * Grava o aceite dos documentos na versão vigente (ADR-0016).
-     * Aceitar é um ato por documento, e os dois são obrigatórios — por isso
-     * não há como aceitar um só por esta função.
+     * Declaração de maioridade **e** aceite dos documentos vigentes, de uma vez
+     * (ADR-0019, que substituiu em parte a ADR-0015).
+     *
+     * É um ato só na tela — uma caixa de seleção que diz as duas coisas — e por
+     * isso é uma transação só aqui: não pode existir conta com termos aceitos e
+     * idade não declarada, nem o contrário.
+     *
+     * O IP entra porque, numa declaração, ele e a data **são** a única evidência
+     * que existe. Chamar de novo não reescreve a declaração original.
      */
-    async acceptTerms(userId) {
-      const acceptedAt = now().toISOString();
-      for (const [document, version] of Object.entries(legalVersions)) {
-        await users.acceptTerms({ userId, document, version, acceptedAt });
-      }
-      return { acceptedAt, versions: { ...legalVersions } };
+    async acceptGate({ userId, ip = null }) {
+      const at = now().toISOString();
+      await users.declareAdultAndAcceptTerms({
+        userId,
+        ip,
+        at,
+        versions: legalVersions,
+      });
+      return {
+        ageVerified: true,
+        termsAccepted: true,
+        acceptedAt: at,
+        versions: { ...legalVersions },
+      };
     },
 
     /** Apaga a linha em `sessions`: é o que um JWT não permitiria. */

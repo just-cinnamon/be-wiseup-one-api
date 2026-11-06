@@ -37,22 +37,14 @@ export const captchaFailed = () =>
 export const unauthorized = (message = 'Sessão expirada. Entre novamente.') =>
   new AppError(401, 'UNAUTHORIZED', message);
 
-// Verificação de idade (ADR-0015).
+// Declaração de maioridade (ADR-0019).
 
-/** Conta logada, idade não verificada. O front manda para /verificar-idade. */
+/** Conta logada que ainda não declarou maioridade. O front manda para a tela. */
 export const ageRequired = () =>
   new AppError(
     403,
     'AGE_REQUIRED',
-    'Verifique que você é maior de 18 anos para acessar o conteúdo.'
-  );
-
-/** Sem provedor configurado, ou provedor fora do ar. Nunca libera o acesso. */
-export const ageProviderUnavailable = () =>
-  new AppError(
-    503,
-    'AGE_PROVIDER_UNAVAILABLE',
-    'A verificação de idade está indisponível agora. Tente novamente mais tarde.'
+    'Confirme que você é maior de 18 anos para acessar o conteúdo.'
   );
 
 // Aceite de termos (ADR-0016).

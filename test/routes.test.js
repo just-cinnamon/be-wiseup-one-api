@@ -1,21 +1,18 @@
 import assert from 'node:assert/strict';
-import { createHmac } from 'node:crypto';
 import { test } from 'node:test';
 import { createApp } from '../src/app.js';
 import { unauthorized } from '../src/http/errors.js';
-import { createAgeService } from '../src/services/ageService.js';
 import { createModerationService } from '../src/services/moderationService.js';
 import { fakeReports, fakeUsers } from './helpers.js';
 
 /*
- * Testes de rota: quem passa e quem não passa (ADR-0012 e ADR-0015).
+ * Testes de rota: quem passa e quem não passa (ADR-0012, ADR-0016, ADR-0019).
  *
  * Sem biblioteca de teste HTTP, que seria dependência nova (ADR-0003): o app
  * sobe numa porta livre (`listen(0)`) e o próprio `fetch` do Node chama.
  */
 
 const VALID_TOKEN = 'token-de-sessao-valido';
-const WEBHOOK_SECRET = 'segredo-do-webhook';
 const AGORA = '2026-11-05T12:00:00.000Z';
 const EMAIL = 'ana@wiseup.test';
 
@@ -31,11 +28,12 @@ const fakeVideosService = {
 
 /**
  * Sobe o app com `users` falso, uma conta já criada e um authService que só
- * aceita VALID_TOKEN. `ageVerified` decide se a conta nasce verificada.
+ * aceita VALID_TOKEN. `ageVerified` decide se a conta nasce com a maioridade
+ * já declarada.
  */
 async function withServer(
   run,
-  { ageVerified = true, termsAccepted = true, isAdmin = false, ageOptions = {} } = {}
+  { ageVerified = true, termsAccepted = true, isAdmin = false } = {}
 ) {
   const users = fakeUsers();
   const { id } = await users.create({
@@ -45,12 +43,7 @@ async function withServer(
   });
 
   if (ageVerified) {
-    await users.setAgeRef(id, { ref: 'ref-verificada', method: 'facial' });
-    await users.setAgeVerified({
-      ref: 'ref-verificada',
-      verifiedAt: AGORA,
-      method: 'facial',
-    });
+    await users.declareAdult({ userId: id, declaredAt: AGORA, ip: '203.0.113.1' });
   }
 
   const aceitarTudo = async (userId) => {
@@ -80,14 +73,19 @@ async function withServer(
     login: async () => ({ user: { id, email: EMAIL }, token: VALID_TOKEN }),
     logout: async () => true,
     deleteAccount: async () => true,
-    acceptTerms: aceitarTudo,
+    // A porta única do catálogo (ADR-0019): declara a maioridade e aceita os
+    // documentos de uma vez.
+    acceptGate: async ({ userId, ip }) => {
+      await users.declareAdult({ userId, declaredAt: AGORA, ip });
+      await aceitarTudo(userId);
+      return {
+        ageVerified: true,
+        termsAccepted: true,
+        acceptedAt: AGORA,
+        versions: LEGAL,
+      };
+    },
   };
-
-  const ageService = createAgeService({
-    webhookSecret: WEBHOOK_SECRET,
-    now: () => new Date(AGORA),
-    ...ageOptions,
-  });
 
   // Moderação de verdade sobre um armazém falso (ADR-0017): o que está sendo
   // testado aqui é a rota, e trocar o serviço por um duplo deixaria de fora
@@ -105,7 +103,6 @@ async function withServer(
   const app = createApp({
     videosService: fakeVideosService,
     authService,
-    ageService,
     moderation,
     accessLog,
     users,
@@ -129,19 +126,6 @@ async function withServer(
 }
 
 const bearer = (token) => ({ headers: { Authorization: `Bearer ${token}` } });
-
-/** Corpo e assinatura HMAC que o provedor mandaria. */
-function assinado(payload, { secret = WEBHOOK_SECRET } = {}) {
-  const body = JSON.stringify(payload);
-  return {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-signature': createHmac('sha256', secret).update(body).digest('hex'),
-    },
-    body,
-  };
-}
 
 // ---- Sessão (ADR-0012) ----
 
@@ -207,9 +191,9 @@ test('sem authService o app não sobe, em vez de servir o catálogo aberto', () 
   );
 });
 
-// ---- Idade (ADR-0015) ----
+// ---- Declaração de maioridade e termos (ADR-0019, ADR-0016) ----
 
-test('logado sem idade verificada não vê nem miniatura', async () => {
+test('logado sem declarar maioridade não vê nem miniatura', async () => {
   await withServer(
     async ({ base }) => {
       for (const path of CATALOGO) {
@@ -219,173 +203,105 @@ test('logado sem idade verificada não vê nem miniatura', async () => {
         assert.equal(body.error.code, 'AGE_REQUIRED');
       }
     },
-    { ageVerified: false }
+    { ageVerified: false, termsAccepted: false }
   );
 });
 
-test('as rotas de idade exigem sessão, menos o webhook', async () => {
+test('não existe mais rota de provedor de idade', async () => {
   await withServer(async ({ base }) => {
-    assert.equal((await fetch(`${base}/api/age/status`)).status, 401);
-    assert.equal(
-      (await fetch(`${base}/api/age/session`, { method: 'POST' })).status,
-      401
-    );
-
-    // O webhook não exige sessão — quem chama é o provedor — e recusa por
-    // assinatura.
-    const webhook = await fetch(`${base}/api/age/webhook`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ client_reference: 'x', result: 'approved' }),
-    });
-    assert.equal(webhook.status, 401);
+    // O provedor saiu junto com a decisão (ADR-0019): nenhuma dessas rotas
+    // pode continuar de pé, aceitando documento ou webhook de alguém.
+    for (const path of ['/api/age/status', '/api/age/session', '/api/age/webhook']) {
+      const response = await fetch(`${base}${path}`, bearer(VALID_TOKEN));
+      assert.equal(response.status, 404, `${path} ainda responde`);
+      assert.equal((await response.json()).error.code, 'ROUTE_NOT_FOUND');
+    }
   });
 });
 
-test('/age/status distingue nunca tentou, em andamento e verificado', async () => {
+test('um clique declara a maioridade e aceita os documentos', async () => {
   await withServer(
     async ({ base, users, userId }) => {
-      const pedir = async () =>
-        (await fetch(`${base}/api/age/status`, bearer(VALID_TOKEN))).json();
-
-      assert.deepEqual(await pedir(), {
-        ageVerified: false,
-        pending: false,
-        method: null,
-        verifiedAt: null,
-      });
-
-      await users.setAgeRef(userId, { ref: 'ref-1', method: null });
-      const andamento = await pedir();
-      assert.equal(andamento.pending, true);
-      assert.equal(andamento.ageVerified, false);
-
-      await users.setAgeVerified({ ref: 'ref-1', verifiedAt: AGORA, method: 'facial' });
-      assert.deepEqual(await pedir(), {
-        ageVerified: true,
-        pending: false,
-        method: 'facial',
-        verifiedAt: AGORA,
-      });
-    },
-    { ageVerified: false }
-  );
-});
-
-test('sem provedor cadastrado, abrir verificação dá 503 e não libera nada', async () => {
-  await withServer(
-    async ({ base }) => {
-      const response = await fetch(`${base}/api/age/session`, {
+      const response = await fetch(`${base}/api/auth/accept`, {
         method: 'POST',
         ...bearer(VALID_TOKEN),
       });
-      assert.equal(response.status, 503);
-      assert.equal((await response.json()).error.code, 'AGE_PROVIDER_UNAVAILABLE');
 
-      // E o catálogo continua fechado.
-      assert.equal((await fetch(`${base}/api/home`, bearer(VALID_TOKEN))).status, 403);
-    },
-    { ageVerified: false }
-  );
-});
-
-test('o webhook assinado marca a conta, e o catálogo abre em seguida', async () => {
-  await withServer(
-    async ({ base, users, userId }) => {
-      await users.setAgeRef(userId, { ref: 'ref-provedor', method: null });
-
-      const response = await fetch(
-        `${base}/api/age/webhook`,
-        assinado({
-          client_reference: 'ref-provedor',
-          result: 'approved',
-          method: 'facial',
-        })
-      );
       assert.equal(response.status, 200);
-      assert.deepEqual(await response.json(), { ok: true, ageVerified: true });
-
-      const conta = await users.findById(userId);
-      assert.equal(conta.age_verified_at, AGORA);
-      assert.equal(conta.age_method, 'facial');
-
-      assert.equal((await fetch(`${base}/api/home`, bearer(VALID_TOKEN))).status, 200);
-    },
-    { ageVerified: false }
-  );
-});
-
-test('assinatura de outro segredo não marca nada', async () => {
-  await withServer(
-    async ({ base, users, userId }) => {
-      await users.setAgeRef(userId, { ref: 'ref-provedor', method: null });
-
-      const response = await fetch(
-        `${base}/api/age/webhook`,
-        assinado(
-          { client_reference: 'ref-provedor', result: 'approved' },
-          { secret: 'segredo-errado' }
-        )
-      );
-      assert.equal(response.status, 401);
-      assert.equal((await users.findById(userId)).age_verified_at, null);
-    },
-    { ageVerified: false }
-  );
-});
-
-test('verificação reprovada é recebida e não libera o acesso', async () => {
-  await withServer(
-    async ({ base, users, userId }) => {
-      await users.setAgeRef(userId, { ref: 'ref-provedor', method: null });
-
-      const response = await fetch(
-        `${base}/api/age/webhook`,
-        assinado({ client_reference: 'ref-provedor', result: 'declined' })
-      );
-      assert.equal(response.status, 200);
-      assert.deepEqual(await response.json(), { ok: true, ageVerified: false });
-      assert.equal((await users.findById(userId)).age_verified_at, null);
-      assert.equal((await fetch(`${base}/api/home`, bearer(VALID_TOKEN))).status, 403);
-    },
-    { ageVerified: false }
-  );
-});
-
-test('AGE_DEV_AUTOVERIFY verifica sem provedor, e não existe em produção', async () => {
-  await withServer(
-    async ({ base, users, userId }) => {
-      const response = await fetch(`${base}/api/age/session`, {
-        method: 'POST',
-        ...bearer(VALID_TOKEN),
-      });
       assert.deepEqual(await response.json(), {
         ageVerified: true,
-        url: null,
-        dev: true,
+        termsAccepted: true,
+        acceptedAt: AGORA,
+        versions: LEGAL,
       });
-      assert.equal((await users.findById(userId)).age_method, 'desenvolvimento');
+
+      // O que ficou guardado: a declaração (quando, como, de qual IP) e uma
+      // linha de aceite por documento. Nada de documento ou foto — não existe
+      // coluna para isso.
+      const conta = await users.findById(userId);
+      assert.equal(conta.age_verified_at, AGORA);
+      assert.equal(conta.age_method, 'autodeclaracao');
+      assert.ok(conta.age_declared_ip, 'o IP da declaração é a evidência que existe');
+
+      const aceites = await users.listAcceptances(userId);
+      assert.equal(aceites.length, 2);
+      assert.deepEqual(aceites.map((a) => a.document).sort(), ['privacidade', 'termos']);
+
       assert.equal((await fetch(`${base}/api/home`, bearer(VALID_TOKEN))).status, 200);
     },
-    { ageVerified: false, ageOptions: { devAutoVerify: true } }
-  );
-
-  // Em produção o atalho não existe, e a rota volta a recusar com 503.
-  await withServer(
-    async ({ base }) => {
-      const response = await fetch(`${base}/api/age/session`, {
-        method: 'POST',
-        ...bearer(VALID_TOKEN),
-      });
-      assert.equal(response.status, 503);
-    },
-    { ageVerified: false, ageOptions: { devAutoVerify: true, isProduction: true } }
+    { ageVerified: false, termsAccepted: false }
   );
 });
 
-// ---- Termos (ADR-0016) ----
+test('declarar exige sessão, e não exige idade nem termos', async () => {
+  await withServer(
+    async ({ base }) => {
+      assert.equal(
+        (await fetch(`${base}/api/auth/accept`, { method: 'POST' })).status,
+        401,
+        'sem token é 401, como qualquer rota de sessão'
+      );
+      // Com token e sem nada aceito, tem de passar: exigir idade declarada
+      // para poder declarar a idade seria o cadeado trancando a chave dentro.
+      assert.equal(
+        (
+          await fetch(`${base}/api/auth/accept`, {
+            method: 'POST',
+            ...bearer(VALID_TOKEN),
+          })
+        ).status,
+        200
+      );
+    },
+    { ageVerified: false, termsAccepted: false }
+  );
+});
 
-test('verificado mas sem aceitar os termos não vê o catálogo', async () => {
+test('declarar de novo não reescreve a declaração original', async () => {
+  await withServer(
+    async ({ base, users, userId }) => {
+      const declarar = () =>
+        fetch(`${base}/api/auth/accept`, { method: 'POST', ...bearer(VALID_TOKEN) });
+
+      await declarar();
+      const primeira = await users.findById(userId);
+      await declarar();
+      const segunda = await users.findById(userId);
+
+      // A data que vale é a da primeira declaração: é ela que a pessoa fez.
+      assert.equal(segunda.age_verified_at, primeira.age_verified_at);
+      assert.equal(segunda.age_declared_ip, primeira.age_declared_ip);
+      assert.equal(
+        (await users.listAcceptances(userId)).length,
+        2,
+        'nem o aceite duplica'
+      );
+    },
+    { ageVerified: false, termsAccepted: false }
+  );
+});
+
+test('declarada a idade, falta de aceite ainda barra o catálogo', async () => {
   await withServer(
     async ({ base }) => {
       for (const path of CATALOGO) {
@@ -394,57 +310,6 @@ test('verificado mas sem aceitar os termos não vê o catálogo', async () => {
         assert.equal(response.status, 403, `${path} devia devolver 403`);
         assert.equal(body.error.code, 'TERMS_REQUIRED');
       }
-    },
-    { termsAccepted: false }
-  );
-});
-
-test('aceitar os termos abre o catálogo, e o aceite fica registrado', async () => {
-  await withServer(
-    async ({ base, users, userId }) => {
-      const response = await fetch(`${base}/api/auth/accept-terms`, {
-        method: 'POST',
-        ...bearer(VALID_TOKEN),
-      });
-      assert.equal(response.status, 200);
-      assert.deepEqual(await response.json(), {
-        termsAccepted: true,
-        acceptedAt: AGORA,
-        versions: LEGAL,
-      });
-
-      // Uma linha por documento, com versão e data: é isso que responde
-      // depois "o que esta pessoa aceitou, e quando".
-      const aceites = await users.listAcceptances(userId);
-      assert.equal(aceites.length, 2);
-      assert.deepEqual(aceites.map((a) => a.document).sort(), ['privacidade', 'termos']);
-      assert.ok(aceites.every((a) => a.accepted_at === AGORA));
-
-      assert.equal((await fetch(`${base}/api/home`, bearer(VALID_TOKEN))).status, 200);
-    },
-    { termsAccepted: false }
-  );
-});
-
-test('aceitar termos exige sessão, e não exige termos aceitos', async () => {
-  await withServer(
-    async ({ base }) => {
-      // Sem token: 401, como qualquer rota de sessão.
-      assert.equal(
-        (await fetch(`${base}/api/auth/accept-terms`, { method: 'POST' })).status,
-        401
-      );
-      // Com token e sem aceite: tem de passar, senão seria o cadeado
-      // trancando a chave dentro.
-      assert.equal(
-        (
-          await fetch(`${base}/api/auth/accept-terms`, {
-            method: 'POST',
-            ...bearer(VALID_TOKEN),
-          })
-        ).status,
-        200
-      );
     },
     { termsAccepted: false }
   );
@@ -463,8 +328,9 @@ test('/auth/me informa idade, termos e as versões vigentes', async () => {
 });
 
 test('a ordem das barreiras é idade e depois termos', async () => {
-  // Sem nada: a primeira recusa é a de idade, não a de termos. A tela que a
-  // pessoa vê primeiro é a de verificação.
+  // Sem nada, a primeira recusa é a de idade. Como as duas são resolvidas na
+  // mesma tela e no mesmo clique (ADR-0019), isso é detalhe de diagnóstico —
+  // mas é o diagnóstico certo.
   await withServer(
     async ({ base }) => {
       const response = await fetch(`${base}/api/home`, bearer(VALID_TOKEN));

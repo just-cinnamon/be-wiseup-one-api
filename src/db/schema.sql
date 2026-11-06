@@ -29,16 +29,21 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 
--- Verificação de idade (ADR-0015). Guardamos **só o resultado**: nunca foto,
--- documento, CPF nem data de nascimento. `age_ref` é o identificador da
--- verificação no provedor, usado para casar o webhook com a conta — e é o que
--- marca uma verificação em andamento enquanto `age_verified_at` é nulo.
+-- Declaração de maioridade (ADR-0019, que substituiu em parte a ADR-0015).
+--
+-- A pessoa **declara** ser maior de 18 anos, e é isso que fica registrado:
+-- quando declarou, por qual meio e de qual IP. Não existe documento, foto,
+-- CPF nem data de nascimento em lugar nenhum deste banco — e não é por
+-- enquanto: é a decisão.
+--
+-- `age_method` guarda 'autodeclaracao'. A coluna existe para que um dia poder
+-- conviver com outro meio (verificação por terceiro, por exemplo) sem perder a
+-- informação de como cada conta foi liberada.
+--
 -- ADD COLUMN IF NOT EXISTS mantém o arquivo idempotente para banco já criado.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS age_verified_at TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS age_method      TEXT;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS age_ref         TEXT;
-
-CREATE INDEX IF NOT EXISTS idx_users_age_ref ON users(age_ref);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS age_declared_ip TEXT;
 
 -- Aceite de termos (ADR-0016). Guarda **o histórico**: uma linha por versão
 -- aceita, e nada é apagado quando uma versão nova sai. É esse registro que

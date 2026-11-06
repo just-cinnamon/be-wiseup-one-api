@@ -211,23 +211,46 @@ test('login certo zera o contador de erros', async () => {
   assert.equal(user.locked_until, null);
 });
 
-test('o aceite vale por versão, e mudar a versão exige aceitar de novo', async () => {
+test('um clique declara a maioridade e aceita os documentos', async () => {
   const { authService, login, users } = await setup();
   const { token } = await login({ password: SENHA });
+  const { id } = await users.findByEmail(EMAIL);
 
-  assert.equal((await authService.getSessionUser(token)).termsAccepted, false);
+  const antes = await authService.getSessionUser(token);
+  assert.equal(antes.ageVerified, false);
+  assert.equal(antes.termsAccepted, false);
 
-  const { acceptedAt, versions } = await authService.acceptTerms(
-    (await users.findByEmail(EMAIL)).id
+  const resultado = await authService.acceptGate({ id, userId: id, ip: '203.0.113.5' });
+  assert.deepEqual(resultado, {
+    ageVerified: true,
+    termsAccepted: true,
+    acceptedAt: '2026-11-05T12:00:00.000Z',
+    versions: VERSOES,
+  });
+
+  // As duas barreiras caem juntas: é uma caixa de seleção só na tela, e por
+  // isso não existe estado em que uma passou e a outra não (ADR-0019).
+  const depois = await authService.getSessionUser(token);
+  assert.equal(depois.ageVerified, true);
+  assert.equal(depois.termsAccepted, true);
+
+  // A declaração guarda quando, como e de qual IP — e nada além disso.
+  const conta = users.byId.get(id);
+  assert.equal(conta.age_verified_at, '2026-11-05T12:00:00.000Z');
+  assert.equal(conta.age_method, 'autodeclaracao');
+  assert.equal(conta.age_declared_ip, '203.0.113.5');
+
+  // Nenhum campo de documento, foto, CPF ou data de nascimento existe na
+  // conta. Este teste falha se alguém acrescentar um.
+  assert.deepEqual(
+    Object.keys(conta).filter((k) => /documento|foto|cpf|nascimento|selfie/i.test(k)),
+    []
   );
-  assert.equal(acceptedAt, '2026-11-05T12:00:00.000Z');
-  assert.deepEqual(versions, VERSOES);
-  assert.equal((await authService.getSessionUser(token)).termsAccepted, true);
 
-  // Aceitar de novo a mesma versão não duplica linha nem reescreve a data: o
-  // histórico guarda o aceite original.
-  await authService.acceptTerms((await users.findByEmail(EMAIL)).id);
+  // Clicar de novo não duplica aceite nem reescreve a declaração original.
+  await authService.acceptGate({ userId: id, ip: '198.51.100.9' });
   assert.equal(users.acceptances.length, 2, 'um por documento, e não quatro');
+  assert.equal(users.byId.get(id).age_declared_ip, '203.0.113.5');
 
   // Versão nova dos documentos: a mesma sessão passa a exigir aceite outra
   // vez, sem derrubar o login.

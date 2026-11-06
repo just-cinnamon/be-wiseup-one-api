@@ -7,10 +7,8 @@ import { createRoutes } from './routes/index.js';
 export function createApp({
   videosService,
   authService,
-  ageService,
   moderation,
   accessLog,
-  users,
   legalVersions,
   corsOrigins,
 }) {
@@ -50,24 +48,18 @@ export function createApp({
     next();
   });
 
-  // Corpo JSON só onde existe corpo: /api/auth, /api/age e /api/reports. O
-  // catálogo é todo GET e não ganha parser. Limite pequeno porque o maior
-  // campo é a observação da denúncia, de 500 caracteres.
+  // Corpo JSON só onde existe corpo: /api/auth e /api/reports. O catálogo é
+  // todo GET e não ganha parser. Limite pequeno porque o maior campo é a
+  // observação da denúncia, de 500 caracteres.
   // O no-store vem antes do parser para valer também quando o JSON é inválido.
   app.use(
-    ['/api/auth', '/api/age', '/api/reports'],
+    ['/api/auth', '/api/reports'],
     (req, res, next) => {
       res.set('Cache-Control', 'no-store');
       next();
     },
     express.json({
       limit: '4kb',
-      // O corpo cru é o que o webhook de idade assina (ADR-0015): depois do
-      // parser, `JSON.stringify(req.body)` não reproduz byte a byte o que o
-      // provedor assinou, e a assinatura nunca bateria.
-      verify: (req, res, buf) => {
-        req.rawBody = buf.toString('utf8');
-      },
     })
   );
 
@@ -76,10 +68,8 @@ export function createApp({
     createRoutes({
       videosService,
       authService,
-      ageService,
       moderation,
       accessLog,
-      users,
       legalVersions,
     })
   );

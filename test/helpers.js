@@ -53,7 +53,7 @@ export function fakeUsers() {
         // Verificação de idade (ADR-0015): nasce sem nada verificado.
         age_verified_at: null,
         age_method: null,
-        age_ref: null,
+        age_declared_ip: null,
       };
       byId.set(user.id, user);
       return { id: user.id, email: user.email };
@@ -106,27 +106,25 @@ export function fakeUsers() {
       };
     },
 
-    // ---- Verificação de idade (ADR-0015) ----
+    // ---- Declaração de maioridade (ADR-0019) ----
 
-    async setAgeRef(userId, { ref, method }) {
+    async declareAdult({ userId, declaredAt, ip, method = 'autodeclaracao' }) {
       const user = byId.get(userId);
-      if (!user) return;
-      user.age_ref = ref;
-      user.age_method = method ?? user.age_method;
-    },
-
-    async findByAgeRef(ref) {
-      return [...byId.values()].find((u) => u.age_ref === ref);
-    },
-
-    async setAgeVerified({ ref, verifiedAt, method }) {
-      const user = [...byId.values()].find(
-        (u) => u.age_ref === ref && !u.age_verified_at
-      );
-      if (!user) return false;
-      user.age_verified_at = verifiedAt;
-      user.age_method = method ?? user.age_method;
+      // Mesmo `WHERE age_verified_at IS NULL` do SQL: a primeira declaração é
+      // a que vale, e declarar de novo não reescreve data nem IP.
+      if (!user || user.age_verified_at) return false;
+      user.age_verified_at = declaredAt;
+      user.age_method = method;
+      user.age_declared_ip = ip ?? null;
       return true;
+    },
+
+    async declareAdultAndAcceptTerms({ userId, ip, at, versions }) {
+      await this.declareAdult({ userId, declaredAt: at, ip });
+      for (const [document, version] of Object.entries(versions)) {
+        await this.acceptTerms({ userId, document, version, acceptedAt: at });
+      }
+      return { at, versions: { ...versions } };
     },
 
     async removeSession(tokenHash) {

@@ -1,7 +1,14 @@
 # ADR-0015 — Verificação de idade decidida no servidor, com provedor externo
 
-- **Status:** aceita (a estrutura está no ar; falta contratar o provedor — ver
-  "O que falta")
+- **Status:** **parcialmente substituída** pela
+  [ADR-0019](0019-idade-por-autodeclaracao.md) — a idade passou a ser
+  **declarada pela própria pessoa**, e o provedor externo descrito aqui
+  (`ageService.js`, `/api/age/*`, webhook assinado e as variáveis `AGE_*`) foi
+  **removido do código**. Continua valendo o que esta ADR decidiu sobre
+  **onde** a idade é exigida: no servidor, por `requireAdult`, em toda rota de
+  catálogo, com campo ausente significando "não". O raciocínio sobre o
+  provedor fica registrado para o caso de a lei passar a exigir verificação de
+  verdade — é para cá que se volta
 - **Data:** 2026-11-05
 - **Fase do projeto:** Fase 1 do plano de prevenção
 
@@ -109,7 +116,7 @@ assinado, e é a única porta de serviço deste desenho. Por isso:
   adulto passou pela tela, não que seja o titular da conta.
 - **A integração HTTP não foi exercitada contra provedor real.** O formato de
   `buildSessionBody`, do webhook e dos cabeçalhos de assinatura é o formato
-  *esperado*, e vai precisar de ajuste quando o provedor estiver escolhido — os
+  _esperado_, e vai precisar de ajuste quando o provedor estiver escolhido — os
   testes usam `fetch` falso.
 
 ## O que falta (fora do código)

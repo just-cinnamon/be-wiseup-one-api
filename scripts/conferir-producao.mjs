@@ -73,10 +73,21 @@ try {
   }
 }
 
-// 3. As rotas do provedor de idade não existem mais (ADR-0019).
+/*
+ * 3. As rotas do provedor de idade não existem mais (ADR-0019).
+ *
+ * Sem token esta checagem é **inconclusiva**: `requireAuth` responde 401 antes
+ * de o roteador chegar ao 404, e a rota antiga também exigia sessão — os dois
+ * casos dão 401. Com token, o 404 é prova. A checagem conclusiva está no fim,
+ * depois do login.
+ */
 {
   const { status } = await chamar('/age/session', { method: 'POST' });
-  resultado(status === 404, 'rotas do provedor de idade removidas', `HTTP ${status}`);
+  resultado(
+    status === 404 || status === 401,
+    'rotas do provedor de idade: sem sessão não responde',
+    `HTTP ${status}${status === 401 ? ' (conclusivo só com e-mail e senha)' : ''}`
+  );
 }
 
 // 4. A porta única existe e exige sessão (ADR-0019).
@@ -177,6 +188,16 @@ const comToken = { headers: { Authorization: `Bearer ${token}` } };
     status === 200 && Array.isArray(corpo?.items),
     'depois da confirmação, o catálogo abre',
     `HTTP ${status}`
+  );
+}
+
+// 10. Agora sim, com sessão: a rota do provedor de idade tem de dar 404.
+{
+  const { status } = await chamar('/age/session', { method: 'POST', ...comToken });
+  resultado(
+    status === 404,
+    'com sessão: rota do provedor de idade removida',
+    `HTTP ${status}${status === 200 || status === 503 ? ' — o adaptador antigo ainda está no ar' : ''}`
   );
 }
 

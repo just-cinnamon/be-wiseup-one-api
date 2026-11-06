@@ -539,36 +539,31 @@ O passo a passo detalhado, com o que esperar e o que fazer quando der errado,
 está em
 [`docs/passo-a-passo-ligar-o-login.md`](docs/passo-a-passo-ligar-o-login.md).
 
-> **Atenção ao que está no ar hoje.** A build publicada no Render é **anterior à
-> autenticação**: `GET /api/videos` responde 200 **sem token**, ou seja, o
-> catálogo adulto está aberto a qualquer pessoa com a URL. A causa é o item 1
-> abaixo — sem `DATABASE_URL` a build nova não sobe, e o Render mantém a
-> anterior. Confira com `npm run conferir -- <url>`.
+> **O que está no ar (06/11/2026).** A build publicada é **esta**, com as
+> barreiras de pé: `GET /api/videos` responde **401 sem token**. Confirmado por
+> `npm run conferir -- https://be-wiseup-one-api.onrender.com <email> <senha>`,
+> dez checagens passando. Rode isso depois de **cada** deploy: quando o processo
+> não sobe, o Render mantém a build anterior no ar e o `/health` segue
+> respondendo 200 como se nada houvesse — foi assim que a versão sem barreira
+> ficou publicada por horas.
 
-1. **Cadastrar `DATABASE_URL` e `SEED_USERS` no serviço da API e implantar.** O
-   banco já existe (`be-wiseup-one-db`, frankfurt, criado em 06/11/2026), com o
-   schema aplicado e testado. **É isto que destrava tudo o mais:** enquanto as
-   variáveis não existirem, a build nova não sobe e o que está publicado é a
-   versão aberta. Passos 2 e 3 do passo a passo.
-   **Cuidado:** a variável cadastrada hoje é `CORS_ORIGIN` (singular), e o
-   código lê `CORS_ORIGINS` — ela nunca teve efeito. Corrija o nome no mesmo
-   momento, incluindo `http://localhost:5173` para o front em desenvolvimento
-   alcançar esta API.
+1. **Marcar `is_admin`** para a sua conta, à mão no banco — sem isso a fila de
+   denúncias não tem quem a olhe. Passo 6 do passo a passo.
 2. **Revisão jurídica** dos Termos e da Política de Privacidade (textos no
    repositório do front, marcados como rascunho **na própria página**). Depois
    dela, atualizar a data em `src/config/legal.js` **uma vez**.
-3. **Marcar `is_admin`** para alguma conta, à mão no banco — sem isso a fila de
-   denúncias não tem quem a olhe.
-4. ~~Rodar os testes de SQL contra um Postgres de verdade~~ — **feito** em
+3. ~~Rodar os testes de SQL contra um Postgres de verdade~~ — **feito** em
    06/11/2026: 119 testes, 119 passando, nenhum pulado. Repetir depois de mexer
    em `schema.sql` ou nos serviços de SQL (passo 7 do passo a passo).
-5. `CORS_ORIGINS` com a URL do front quando ele for publicado (hoje só
-   `http://localhost:5173`).
-6. **Captcha (opcional, ADR-0014):** registrar o site em
+4. `CORS_ORIGINS` com a URL do front quando ele for publicado (hoje
+   `http://localhost:5173`, já cadastrada — a antiga `CORS_ORIGIN`, no singular,
+   que o código nunca leu, foi removida).
+5. **Captcha (opcional, ADR-0014):** registrar o site em
    <https://www.google.com/recaptcha/admin> (reCAPTCHA v2), cadastrar
    `RECAPTCHA_SECRET` aqui e voltar o widget no front. Enquanto a variável não
-   existir, o captcha não é exigido e o boot avisa.
-7. **Etapa 5 (front):** `VITE_AUTH_MODE=api` e o botão "Excluir minha conta".
+   existir, o captcha não é exigido e o boot avisa — e ele está avisando.
+6. **Etapa 5 (front):** falta só o botão "Excluir minha conta" —
+   `VITE_AUTH_MODE=api` já está ligado desde 06/11/2026.
 
 ### 06/11/2026 — Passo a passo para ligar o login, e um verificador de produção
 
@@ -641,3 +636,51 @@ Três coisas que só apareceram contra um banco de verdade:
 serviço e implantar. É mudança em serviço no ar, então não passa em modo
 automático — e enquanto não acontecer, o que está publicado continua sendo a
 build antiga, com o catálogo aberto.
+
+### 06/11/2026 — A API no ar, com as barreiras de pé
+
+Primeiro deploy bem-sucedido desde o trabalho de autenticação. Antes dele, o
+histórico mostrava **cinco deploys seguidos em `update_failed`** — um por commit
+—, com o serviço "live" no painel servindo a build anterior.
+
+Variáveis cadastradas no serviço: `DATABASE_URL` (a **interna**, que não sai da
+rede do Render), `SEED_USERS`, `CORS_ORIGINS`, `NODE_ENV=production` e
+`DATABASE_SSL_INSECURE`.
+
+**O certificado do banco custou um deploy.** Com a `DATABASE_URL` cadastrada, o
+boot morreu em `DEPTH_ZERO_SELF_SIGNED_CERT`: o Postgres do Render serve
+certificado próprio na conexão **interna**. `DATABASE_SSL_INSECURE=true` é o
+caminho que o código previu, e o que ele custa está dito: a conexão continua
+cifrada, o que se perde é a prova de que o servidor do outro lado é o banco — e
+isso acontece dentro da rede privada, entre o serviço e o banco dele.
+
+A alternativa que manteria a verificação foi considerada e recusada: apontar a
+`DATABASE_URL` para a URL **externa**, cujo certificado é publicamente válido
+(confirmado — o schema foi aplicado daqui com verificação ligada). O custo seria
+o tráfego do banco sair da rede privada **e** o firewall do banco ter de aceitar
+os IPs de saída do Render, que não são exclusivos deste serviço. Trocar uma
+verificação de identidade dentro da rede privada por uma regra de firewall que
+não distingue quem bate à porta não é melhoria.
+
+**O boot disse o que tinha de dizer:** `Banco conectado: 1 conta(s) em
+SEED_USERS, 1 criada(s) agora.` e `Moderação: 0 vídeo(s) fora do catálogo.`
+
+**As dez checagens do verificador passam.** As que importam: catálogo **401 sem
+token**; com sessão e sem declaração, **403 AGE_REQUIRED**; `POST /auth/accept`
+registrando idade e termos juntos; catálogo abrindo depois disso; e
+`/api/age/*` em **404**.
+
+**Defeito encontrado no próprio verificador:** sem token, `/api/age/session`
+responde 401 — `requireAuth` corre antes do roteador chegar ao 404 —, e a rota
+antiga do provedor também exigia sessão. Os dois casos davam 401, então a
+checagem não provava nada. Agora ela diz que é inconclusiva sem credencial, e
+uma décima checagem confere o 404 **com** sessão.
+
+**Imprecisão conhecida, só na resposta:** chamar `POST /auth/accept` de novo
+devolve `acceptedAt` com a hora da chamada, embora a declaração guardada
+continue sendo a primeira (`WHERE age_verified_at IS NULL`) e o aceite não
+duplique. O banco está certo; a resposta é que fala demais. Não afeta o front,
+que chama uma vez e ignora a data.
+
+**Pendente, e é concessão de privilégio:** marcar `is_admin` na conta. O SQL
+está no passo 6 do passo a passo (`= TRUE`, não `= 1`).

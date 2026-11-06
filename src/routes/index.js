@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { createRequireAuth } from '../http/requireAuth.js';
 import { requireAdult } from '../http/requireAdult.js';
+import { requireTerms } from '../http/requireTerms.js';
 import { createAgeRoutes } from './age.js';
 import { createAuthRoutes } from './auth.js';
 
@@ -12,7 +13,13 @@ import { createAuthRoutes } from './auth.js';
  * era público, o login do front não barrava ninguém — bastava chamar
  * `GET /api/home` direto para receber conteúdo +18 sem conta nenhuma.
  */
-export function createRoutes({ videosService, authService, ageService, users }) {
+export function createRoutes({
+  videosService,
+  authService,
+  ageService,
+  users,
+  legalVersions = {},
+}) {
   // Fail-closed: sem `authService` não há como exigir sessão. A resposta certa
   // é não subir, em vez de servir o catálogo para todo mundo.
   if (!authService) {
@@ -38,7 +45,7 @@ export function createRoutes({ videosService, authService, ageService, users }) 
 
   // Também aberta, por necessidade: é por aqui que se consegue a sessão. Estas
   // rotas trazem o próprio Cache-Control: no-store, posto em app.js.
-  router.use('/auth', createAuthRoutes({ authService }));
+  router.use('/auth', createAuthRoutes({ authService, legalVersions }));
 
   // A verificação de idade fica **antes** do requireAdult, e cuida da própria
   // autenticação por rota (ADR-0015): exigir idade verificada para poder
@@ -47,9 +54,10 @@ export function createRoutes({ videosService, authService, ageService, users }) 
     router.use('/age', createAgeRoutes({ ageService, users, authService }));
   }
 
-  // ---- Daqui para baixo, só com sessão válida e idade verificada. ----
+  // ---- Daqui para baixo: sessão válida, idade verificada e termos aceitos. ----
   router.use(requireAuth);
   router.use(requireAdult);
+  router.use(requireTerms);
 
   router.get('/home', cacheFor(300), async (req, res) => {
     res.json(await videosService.getHome());

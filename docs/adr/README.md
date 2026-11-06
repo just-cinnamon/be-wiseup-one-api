@@ -29,6 +29,7 @@ vencido quando a API externa falha, ou por que o banner da Home fica borrado.
 | [0013](0013-postgres-gerenciado-no-lugar-do-sqlite.md) | Postgres gerenciado no lugar do `node:sqlite` | Aceita | 2026-11-05 |
 | [0014](0014-captcha-exigido-so-com-secret.md) | O captcha é exigido só quando há secret para conferi-lo | Aceita | 2026-11-05 |
 | [0015](0015-verificacao-de-idade-no-servidor.md) | Verificação de idade decidida no servidor, com provedor externo | Aceita | 2026-11-05 |
+| [0016](0016-aceite-de-termos-por-versao.md) | Aceite de termos gravado por versão, e exigido a cada requisição | Aceita | 2026-11-05 |
 
 ## Como criar uma nova ADR
 

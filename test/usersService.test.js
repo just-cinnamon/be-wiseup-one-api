@@ -163,3 +163,91 @@ test('apagar a conta leva as sessões por cascata', { skip }, async () => {
   assert.equal(await users.findSession('d'.repeat(64)), undefined);
   assert.equal(await users.remove(id), false);
 });
+
+test('aceite de termos: uma linha por versão, sem duplicar', { skip }, async () => {
+  const users = createUsersService({ db: await abrir() });
+  const { id } = await users.create({
+    email: email('gi'),
+    passwordHash: 'scrypt$fake',
+    createdAt: '2026-11-05T12:00:00.000Z',
+  });
+
+  const aceitar = (document, version, acceptedAt) =>
+    users.acceptTerms({ userId: id, document, version, acceptedAt });
+
+  await aceitar('termos', '2026-11-05', '2026-11-05T12:00:00.000Z');
+  await aceitar('privacidade', '2026-11-05', '2026-11-05T12:00:00.000Z');
+  // Repetir o mesmo aceite não cria linha nem reescreve a data original
+  // (ON CONFLICT DO NOTHING): o histórico é do primeiro aceite.
+  await aceitar('termos', '2026-11-05', '2026-12-01T00:00:00.000Z');
+
+  const aceites = await users.listAcceptances(id);
+  assert.equal(aceites.length, 2);
+  const termos = aceites.find((a) => a.document === 'termos');
+  assert.equal(termos.accepted_at, '2026-11-05T12:00:00.000Z');
+
+  // Versão nova é outra linha: nada do que já foi aceito é apagado.
+  await aceitar('termos', '2027-01-01', '2027-01-02T00:00:00.000Z');
+  assert.equal((await users.listAcceptances(id)).length, 3);
+});
+
+test('a sessão conta os aceites da versão vigente', { skip }, async () => {
+  const users = createUsersService({ db: await abrir() });
+  const { id } = await users.create({
+    email: email('hugo'),
+    passwordHash: 'scrypt$fake',
+    createdAt: '2026-11-05T12:00:00.000Z',
+  });
+  await users.createSession({
+    tokenHash: 'e'.repeat(64),
+    userId: id,
+    createdAt: '2026-11-05T12:00:00.000Z',
+    expiresAt: '2026-11-06T00:00:00.000Z',
+  });
+
+  const versoes = { termos: '2026-11-05', privacidade: '2026-11-05' };
+  const contar = async () =>
+    Number((await users.findSession('e'.repeat(64), versoes)).accepted_count);
+
+  assert.equal(await contar(), 0);
+  await users.acceptTerms({
+    userId: id,
+    document: 'termos',
+    version: '2026-11-05',
+    acceptedAt: '2026-11-05T12:00:00.000Z',
+  });
+  assert.equal(await contar(), 1, 'um documento só não basta');
+
+  await users.acceptTerms({
+    userId: id,
+    document: 'privacidade',
+    version: '2026-11-05',
+    acceptedAt: '2026-11-05T12:00:00.000Z',
+  });
+  assert.equal(await contar(), 2);
+
+  // Aceite de versão antiga não conta para a vigente.
+  const antigas = { termos: '2020-01-01', privacidade: '2020-01-01' };
+  assert.equal(
+    Number((await users.findSession('e'.repeat(64), antigas)).accepted_count),
+    0
+  );
+});
+
+test('apagar a conta leva os aceites por cascata', { skip }, async () => {
+  const users = createUsersService({ db: await abrir() });
+  const { id } = await users.create({
+    email: email('ian'),
+    passwordHash: 'scrypt$fake',
+    createdAt: '2026-11-05T12:00:00.000Z',
+  });
+  await users.acceptTerms({
+    userId: id,
+    document: 'termos',
+    version: '2026-11-05',
+    acceptedAt: '2026-11-05T12:00:00.000Z',
+  });
+
+  assert.equal(await users.remove(id), true);
+  assert.deepEqual(await users.listAcceptances(id), []);
+});

@@ -19,6 +19,7 @@ const AGORA = '2026-11-05T12:00:00.000Z';
 const EMAIL = 'ana@wiseup.test';
 
 const CATALOGO = ['/api/home', '/api/videos', '/api/videos/abc', '/api/categories'];
+const LEGAL = { termos: '2026-11-05', privacidade: '2026-11-05' };
 
 const fakeVideosService = {
   getHome: async () => ({ featured: null, top10: [], rows: [] }),
@@ -31,7 +32,10 @@ const fakeVideosService = {
  * Sobe o app com `users` falso, uma conta já criada e um authService que só
  * aceita VALID_TOKEN. `ageVerified` decide se a conta nasce verificada.
  */
-async function withServer(run, { ageVerified = true, ageOptions = {} } = {}) {
+async function withServer(
+  run,
+  { ageVerified = true, termsAccepted = true, ageOptions = {} } = {}
+) {
   const users = fakeUsers();
   const { id } = await users.create({
     email: EMAIL,
@@ -48,15 +52,33 @@ async function withServer(run, { ageVerified = true, ageOptions = {} } = {}) {
     });
   }
 
+  const aceitarTudo = async (userId) => {
+    for (const [document, version] of Object.entries(LEGAL)) {
+      await users.acceptTerms({ userId, document, version, acceptedAt: AGORA });
+    }
+    return { acceptedAt: AGORA, versions: LEGAL };
+  };
+
+  if (termsAccepted) await aceitarTudo(id);
+
   const authService = {
     getSessionUser: async (token) => {
       if (token !== VALID_TOKEN) throw unauthorized();
       const user = await users.findById(id);
-      return { id, email: user.email, ageVerified: Boolean(user.age_verified_at) };
+      const aceites = await users.listAcceptances(id);
+      return {
+        id,
+        email: user.email,
+        ageVerified: Boolean(user.age_verified_at),
+        termsAccepted: Object.entries(LEGAL).every(([document, version]) =>
+          aceites.some((a) => a.document === document && a.version === version)
+        ),
+      };
     },
     login: async () => ({ user: { id, email: EMAIL }, token: VALID_TOKEN }),
     logout: async () => true,
     deleteAccount: async () => true,
+    acceptTerms: aceitarTudo,
   };
 
   const ageService = createAgeService({
@@ -70,6 +92,7 @@ async function withServer(run, { ageVerified = true, ageOptions = {} } = {}) {
     authService,
     ageService,
     users,
+    legalVersions: LEGAL,
     corsOrigins: ['http://localhost:5173'],
   });
   const server = app.listen(0);
@@ -333,5 +356,96 @@ test('AGE_DEV_AUTOVERIFY verifica sem provedor, e não existe em produção', as
       assert.equal(response.status, 503);
     },
     { ageVerified: false, ageOptions: { devAutoVerify: true, isProduction: true } }
+  );
+});
+
+// ---- Termos (ADR-0016) ----
+
+test('verificado mas sem aceitar os termos não vê o catálogo', async () => {
+  await withServer(
+    async ({ base }) => {
+      for (const path of CATALOGO) {
+        const response = await fetch(`${base}${path}`, bearer(VALID_TOKEN));
+        const body = await response.json();
+        assert.equal(response.status, 403, `${path} devia devolver 403`);
+        assert.equal(body.error.code, 'TERMS_REQUIRED');
+      }
+    },
+    { termsAccepted: false }
+  );
+});
+
+test('aceitar os termos abre o catálogo, e o aceite fica registrado', async () => {
+  await withServer(
+    async ({ base, users, userId }) => {
+      const response = await fetch(`${base}/api/auth/accept-terms`, {
+        method: 'POST',
+        ...bearer(VALID_TOKEN),
+      });
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), {
+        termsAccepted: true,
+        acceptedAt: AGORA,
+        versions: LEGAL,
+      });
+
+      // Uma linha por documento, com versão e data: é isso que responde
+      // depois "o que esta pessoa aceitou, e quando".
+      const aceites = await users.listAcceptances(userId);
+      assert.equal(aceites.length, 2);
+      assert.deepEqual(aceites.map((a) => a.document).sort(), ['privacidade', 'termos']);
+      assert.ok(aceites.every((a) => a.accepted_at === AGORA));
+
+      assert.equal((await fetch(`${base}/api/home`, bearer(VALID_TOKEN))).status, 200);
+    },
+    { termsAccepted: false }
+  );
+});
+
+test('aceitar termos exige sessão, e não exige termos aceitos', async () => {
+  await withServer(
+    async ({ base }) => {
+      // Sem token: 401, como qualquer rota de sessão.
+      assert.equal(
+        (await fetch(`${base}/api/auth/accept-terms`, { method: 'POST' })).status,
+        401
+      );
+      // Com token e sem aceite: tem de passar, senão seria o cadeado
+      // trancando a chave dentro.
+      assert.equal(
+        (
+          await fetch(`${base}/api/auth/accept-terms`, {
+            method: 'POST',
+            ...bearer(VALID_TOKEN),
+          })
+        ).status,
+        200
+      );
+    },
+    { termsAccepted: false }
+  );
+});
+
+test('/auth/me informa idade, termos e as versões vigentes', async () => {
+  await withServer(async ({ base }) => {
+    const me = await (await fetch(`${base}/api/auth/me`, bearer(VALID_TOKEN))).json();
+    assert.equal(me.user.ageVerified, true);
+    assert.equal(me.user.termsAccepted, true);
+    assert.deepEqual(me.legalVersions, LEGAL);
+    // O e-mail volta; a senha e o token não existem na resposta.
+    assert.equal(me.user.email, EMAIL);
+    assert.ok(!JSON.stringify(me).includes(VALID_TOKEN));
+  });
+});
+
+test('a ordem das barreiras é idade e depois termos', async () => {
+  // Sem nada: a primeira recusa é a de idade, não a de termos. A tela que a
+  // pessoa vê primeiro é a de verificação.
+  await withServer(
+    async ({ base }) => {
+      const response = await fetch(`${base}/api/home`, bearer(VALID_TOKEN));
+      assert.equal((await response.json()).error.code, 'AGE_REQUIRED');
+    },
+    { ageVerified: false, termsAccepted: false }
   );
 });

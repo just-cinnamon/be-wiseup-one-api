@@ -29,10 +29,12 @@ export function fakeUsers() {
   let seq = 0;
   const byId = new Map();
   const sessions = new Map();
+  const acceptances = [];
 
   const store = {
     byId,
     sessions,
+    acceptances,
 
     async findByEmail(email) {
       return [...byId.values()].find((u) => u.email === email);
@@ -58,9 +60,11 @@ export function fakeUsers() {
     },
 
     async remove(userId) {
-      // ON DELETE CASCADE, à mão: as sessões vão com a conta.
+      // ON DELETE CASCADE, à mão: sessões e aceites vão com a conta.
       for (const [hash, session] of sessions)
         if (session.user_id === userId) sessions.delete(hash);
+      for (let i = acceptances.length - 1; i >= 0; i -= 1)
+        if (acceptances[i].user_id === userId) acceptances.splice(i, 1);
       return byId.delete(userId);
     },
 
@@ -83,16 +87,22 @@ export function fakeUsers() {
       return byId.get(userId);
     },
 
-    async findSession(tokenHash) {
+    async findSession(tokenHash, versions) {
       const session = sessions.get(tokenHash);
       if (!session) return undefined;
       const user = byId.get(session.user_id);
       if (!user) return undefined;
+      // Mesma contagem da subconsulta do SQL de verdade (ADR-0016): quantos
+      // dos documentos vigentes esta conta já aceitou.
+      const accepted = acceptances.filter(
+        (a) => a.user_id === user.id && versions?.[a.document] === a.version
+      ).length;
       return {
         id: user.id,
         email: user.email,
         age_verified_at: user.age_verified_at,
         expires_at: session.expires_at,
+        accepted_count: accepted,
       };
     },
 
@@ -121,6 +131,30 @@ export function fakeUsers() {
 
     async removeSession(tokenHash) {
       return sessions.delete(tokenHash);
+    },
+
+    // ---- Aceite de termos (ADR-0016) ----
+
+    async acceptTerms({ userId, document, version, acceptedAt }) {
+      const jaTem = acceptances.some(
+        (a) => a.user_id === userId && a.document === document && a.version === version
+      );
+      // ON CONFLICT DO NOTHING: a data que vale é a do primeiro aceite.
+      if (!jaTem) {
+        acceptances.push({
+          user_id: userId,
+          document,
+          version,
+          accepted_at: acceptedAt,
+        });
+      }
+    },
+
+    async listAcceptances(userId) {
+      return acceptances
+        .filter((a) => a.user_id === userId)
+        .map(({ document, version, accepted_at }) => ({ document, version, accepted_at }))
+        .reverse();
     },
 
     async removeExpiredSessions(nowIso) {

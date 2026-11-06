@@ -34,6 +34,10 @@ export function createAuthService({
   users,
   captchaService,
   captchaRequired = false,
+  // Versões vigentes dos documentos legais (ADR-0016). Mudar uma delas em
+  // `config/legal.js` faz todas as sessões passarem a exigir aceite novo, sem
+  // invalidar ninguém: a sessão continua, só o acesso ao catálogo para.
+  legalVersions = {},
   sessionTtlHours = 12,
   maxAttempts = 5,
   lockMinutes = 15,
@@ -63,6 +67,14 @@ export function createAuthService({
     return { email, password, captchaToken };
   }
 
+  /** Os dois documentos vigentes já aceitos? (ADR-0016) */
+  async function hasAcceptedCurrentTerms(userId) {
+    const aceites = await users.listAcceptances(userId);
+    return Object.entries(legalVersions).every(([document, version]) =>
+      aceites.some((a) => a.document === document && a.version === version)
+    );
+  }
+
   /** Cria a sessão e devolve o token em claro — que só o front vai ter. */
   async function startSession(user, current) {
     const token = randomBytes(SESSION_TOKEN_BYTES).toString('base64url');
@@ -78,12 +90,13 @@ export function createAuthService({
     });
 
     return {
-      // O front usa `ageVerified` para mandar direto a quem falta verificar,
-      // sem esperar o primeiro 403 do catálogo.
+      // O front usa `ageVerified` e `termsAccepted` para mandar direto para a
+      // tela que falta, sem esperar o primeiro 403 do catálogo.
       user: {
         id: user.id,
         email: user.email,
         ageVerified: Boolean(user.age_verified_at),
+        termsAccepted: await hasAcceptedCurrentTerms(user.id),
       },
       token,
       expiresAt,
@@ -148,16 +161,32 @@ export function createAuthService({
       const nowIso = now().toISOString();
       await users.removeExpiredSessions(nowIso);
 
-      const session = await users.findSession(sha256(token));
+      const session = await users.findSession(sha256(token), legalVersions);
       if (!session || session.expires_at <= nowIso) throw unauthorized();
 
-      // `ageVerified` vai na sessão para o `requireAdult` decidir sem outra
-      // consulta. Campo ausente ou nulo é "não verificado" (ADR-0015).
+      // `ageVerified` e `termsAccepted` vão na sessão para `requireAdult` e
+      // `requireTerms` decidirem sem outra consulta. Campo ausente é "não"
+      // nos dois casos (ADR-0015, ADR-0016).
       return {
         id: session.id,
         email: session.email,
         ageVerified: Boolean(session.age_verified_at),
+        // Os dois documentos, na versão vigente: um aceite só não basta.
+        termsAccepted: Number(session.accepted_count ?? 0) >= 2,
       };
+    },
+
+    /**
+     * Grava o aceite dos documentos na versão vigente (ADR-0016).
+     * Aceitar é um ato por documento, e os dois são obrigatórios — por isso
+     * não há como aceitar um só por esta função.
+     */
+    async acceptTerms(userId) {
+      const acceptedAt = now().toISOString();
+      for (const [document, version] of Object.entries(legalVersions)) {
+        await users.acceptTerms({ userId, document, version, acceptedAt });
+      }
+      return { acceptedAt, versions: { ...legalVersions } };
     },
 
     /** Apaga a linha em `sessions`: é o que um JWT não permitiria. */

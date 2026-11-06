@@ -54,3 +54,13 @@ export const ageProviderUnavailable = () =>
     'AGE_PROVIDER_UNAVAILABLE',
     'A verificação de idade está indisponível agora. Tente novamente mais tarde.'
   );
+
+// Aceite de termos (ADR-0016).
+
+/** Conta logada e verificada, sem aceitar a versão vigente dos documentos. */
+export const termsRequired = () =>
+  new AppError(
+    403,
+    'TERMS_REQUIRED',
+    'Aceite os Termos de Uso e a Política de Privacidade para continuar.'
+  );

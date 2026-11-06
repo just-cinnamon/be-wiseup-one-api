@@ -56,16 +56,27 @@ export function createUsersService({ db }) {
 
     /**
      * Sessão com os dados do usuário, sem olhar a validade.
-     * Traz `age_verified_at` porque o `requireAdult` decide por requisição, e
-     * uma consulta a mais por chamada autenticada não se justifica.
+     *
+     * Traz `age_verified_at` e a contagem de aceites da versão vigente numa
+     * consulta só: `requireAdult` e `requireTerms` decidem por requisição, e
+     * três idas ao banco por chamada autenticada não se justificam.
+     *
+     * @param {string} tokenHash
+     * @param {{ termos: string, privacidade: string }} versions versões
+     *   vigentes dos documentos (`config/legal.js`)
      */
-    async findSession(tokenHash) {
+    async findSession(tokenHash, versions) {
       const { rows } = await db.query(
-        `SELECT u.id, u.email, u.age_verified_at, s.expires_at
+        `SELECT u.id, u.email, u.age_verified_at, s.expires_at,
+                (SELECT COUNT(*) FROM terms_acceptances ta
+                  WHERE ta.user_id = u.id
+                    AND ((ta.document = 'termos' AND ta.version = $2)
+                      OR (ta.document = 'privacidade' AND ta.version = $3))
+                ) AS accepted_count
            FROM sessions s
            JOIN users u ON u.id = s.user_id
           WHERE s.token_hash = $1`,
-        [tokenHash]
+        [tokenHash, versions?.termos ?? '', versions?.privacidade ?? '']
       );
       return rows[0];
     },
@@ -109,6 +120,34 @@ export function createUsersService({ db }) {
         [verifiedAt, method ?? null, ref]
       );
       return rowCount > 0;
+    },
+
+    // ---- Aceite de termos (ADR-0016) ----
+
+    /**
+     * Grava o aceite de uma versão. Idempotente: aceitar duas vezes a mesma
+     * versão não cria linha nova nem muda a data do primeiro aceite — a data
+     * que importa é a do aceite original.
+     */
+    async acceptTerms({ userId, document, version, acceptedAt }) {
+      await db.query(
+        `INSERT INTO terms_acceptances (user_id, document, version, accepted_at)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (user_id, document, version) DO NOTHING`,
+        [userId, document, version, acceptedAt]
+      );
+    },
+
+    /** Todos os aceites da conta, do mais recente para o mais antigo. */
+    async listAcceptances(userId) {
+      const { rows } = await db.query(
+        `SELECT document, version, accepted_at
+           FROM terms_acceptances
+          WHERE user_id = $1
+          ORDER BY accepted_at DESC`,
+        [userId]
+      );
+      return rows;
     },
 
     /** Faxina das sessões vencidas; roda junto da validação de token. */

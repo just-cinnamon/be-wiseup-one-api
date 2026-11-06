@@ -9,6 +9,7 @@ export function createApp({
   authService,
   ageService,
   users,
+  legalVersions,
   corsOrigins,
 }) {
   const app = express();
@@ -56,7 +57,10 @@ export function createApp({
     })
   );
 
-  app.use('/api', createRoutes({ videosService, authService, ageService, users }));
+  app.use(
+    '/api',
+    createRoutes({ videosService, authService, ageService, users, legalVersions })
+  );
   app.use(notFoundHandler);
   app.use(errorHandler);
 

@@ -3,6 +3,7 @@
 import './config/checkNode.js';
 import { createApp } from './app.js';
 import { env } from './config/env.js';
+import { LEGAL_VERSIONS } from './config/legal.js';
 import { createDatabase } from './db/database.js';
 import { createAgeService } from './services/ageService.js';
 import { createAuthService } from './services/authService.js';
@@ -48,6 +49,7 @@ const authService = createAuthService({
   users,
   captchaService,
   captchaRequired,
+  legalVersions: LEGAL_VERSIONS,
   sessionTtlHours: env.sessionTtlHours,
   maxAttempts: env.loginMaxAttempts,
   lockMinutes: env.loginLockMinutes,
@@ -77,6 +79,7 @@ const app = createApp({
   authService,
   ageService,
   users,
+  legalVersions: LEGAL_VERSIONS,
   corsOrigins: env.corsOrigins,
 });
 

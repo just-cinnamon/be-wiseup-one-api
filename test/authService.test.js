@@ -6,6 +6,7 @@ import { fakeUsers } from './helpers.js';
 const SENHA = 'segredo123';
 const EMAIL = 'ana@wiseup.test';
 const CAPTCHA = 'x'.repeat(300);
+const VERSOES = { termos: '2026-11-05', privacidade: '2026-11-05' };
 
 /**
  * Monta o serviço com `users` falso em memória, captcha falso e relógio
@@ -17,8 +18,11 @@ async function setup({
   captchaRequired = true,
   lockMinutes = 15,
   maxAttempts = 5,
+  legalVersions = VERSOES,
+  // Reaproveitar o mesmo `users` permite montar um segundo serviço sobre os
+  // mesmos dados — é como se testa a troca de versão dos documentos.
+  users = fakeUsers(),
 } = {}) {
-  const users = fakeUsers();
   let current = new Date('2026-11-05T12:00:00.000Z');
   const captchaCalls = [];
 
@@ -28,6 +32,7 @@ async function setup({
       verify: async (token) => (captchaCalls.push(token), captcha),
     },
     captchaRequired,
+    legalVersions,
     sessionTtlHours: 12,
     maxAttempts,
     lockMinutes,
@@ -83,6 +88,7 @@ test('login devolve usuário, token e validade', async () => {
   assert.equal(result.user.email, EMAIL);
   assert.ok(result.user.id);
   assert.equal(result.user.ageVerified, false);
+  assert.equal(result.user.termsAccepted, false);
   assert.ok(result.token.length >= 40);
   assert.equal(result.expiresAt, '2026-11-06T00:00:00.000Z');
   // O token em claro não pode aparecer na resposta de nenhum outro campo.
@@ -205,6 +211,55 @@ test('login certo zera o contador de erros', async () => {
   assert.equal(user.locked_until, null);
 });
 
+test('o aceite vale por versão, e mudar a versão exige aceitar de novo', async () => {
+  const { authService, login, users } = await setup();
+  const { token } = await login({ password: SENHA });
+
+  assert.equal((await authService.getSessionUser(token)).termsAccepted, false);
+
+  const { acceptedAt, versions } = await authService.acceptTerms(
+    (await users.findByEmail(EMAIL)).id
+  );
+  assert.equal(acceptedAt, '2026-11-05T12:00:00.000Z');
+  assert.deepEqual(versions, VERSOES);
+  assert.equal((await authService.getSessionUser(token)).termsAccepted, true);
+
+  // Aceitar de novo a mesma versão não duplica linha nem reescreve a data: o
+  // histórico guarda o aceite original.
+  await authService.acceptTerms((await users.findByEmail(EMAIL)).id);
+  assert.equal(users.acceptances.length, 2, 'um por documento, e não quatro');
+
+  // Versão nova dos documentos: a mesma sessão passa a exigir aceite outra
+  // vez, sem derrubar o login.
+  const { authService: comVersaoNova } = await setup({
+    legalVersions: { termos: '2027-01-01', privacidade: '2027-01-01' },
+    users,
+  });
+  assert.equal((await comVersaoNova.getSessionUser(token)).termsAccepted, false);
+});
+
+test('um documento aceito só não basta', async () => {
+  const { authService, login, users } = await setup();
+  const { token } = await login({ password: SENHA });
+  const { id } = await users.findByEmail(EMAIL);
+
+  await users.acceptTerms({
+    userId: id,
+    document: 'termos',
+    version: VERSOES.termos,
+    acceptedAt: '2026-11-05T12:00:00.000Z',
+  });
+  assert.equal((await authService.getSessionUser(token)).termsAccepted, false);
+
+  await users.acceptTerms({
+    userId: id,
+    document: 'privacidade',
+    version: VERSOES.privacidade,
+    acceptedAt: '2026-11-05T12:00:00.000Z',
+  });
+  assert.equal((await authService.getSessionUser(token)).termsAccepted, true);
+});
+
 test('token válido vira usuário; token inválido dá 401', async () => {
   const { login, authService } = await setup();
   const { token, user } = await login({ password: SENHA });
@@ -212,8 +267,10 @@ test('token válido vira usuário; token inválido dá 401', async () => {
   assert.deepEqual(await authService.getSessionUser(token), {
     id: user.id,
     email: EMAIL,
-    // Conta nova nunca nasce verificada (ADR-0015).
+    // Conta nova nunca nasce verificada nem com termos aceitos (ADR-0015,
+    // ADR-0016).
     ageVerified: false,
+    termsAccepted: false,
   });
 
   for (const ruim of ['', 'curto', `${token}x`, null, undefined, 'y'.repeat(201)]) {

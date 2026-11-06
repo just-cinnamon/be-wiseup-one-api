@@ -39,3 +39,14 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS age_method      TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS age_ref         TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_users_age_ref ON users(age_ref);
+
+-- Aceite de termos (ADR-0016). Guarda **o histórico**: uma linha por versão
+-- aceita, e nada é apagado quando uma versão nova sai. É esse registro que
+-- responde, depois, "o que exatamente esta pessoa aceitou, e quando".
+CREATE TABLE IF NOT EXISTS terms_acceptances (
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  document    TEXT NOT NULL,            -- 'termos' | 'privacidade'
+  version     TEXT NOT NULL,            -- data da versão, ex.: '2026-11-05'
+  accepted_at TEXT NOT NULL,            -- ISO 8601
+  PRIMARY KEY (user_id, document, version)
+);

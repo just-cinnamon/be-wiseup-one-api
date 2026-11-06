@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, test } from 'node:test';
 import { createDatabase } from '../src/db/database.js';
+import { createAccessLogService } from '../src/services/accessLogService.js';
 import { createUsersService } from '../src/services/usersService.js';
 
 /*
@@ -25,6 +26,8 @@ const skip = url ? false : 'defina TEST_DATABASE_URL para exercitar o SQL';
 // identificável se algo falhar no meio.
 const PREFIXO = `teste-${randomUUID().slice(0, 8)}`;
 const email = (nome) => `${PREFIXO}-${nome}@wiseup.test`;
+
+const AGORA = '2026-11-05T12:00:00.000Z';
 
 let db = null;
 const abrir = async () => {
@@ -250,4 +253,61 @@ test('apagar a conta leva os aceites por cascata', { skip }, async () => {
 
   assert.equal(await users.remove(id), true);
   assert.deepEqual(await users.listAcceptances(id), []);
+});
+
+/*
+ * O registro de acesso (ADR-0018) mora aqui porque depende da mesma conexão e
+ * do mesmo ciclo de vida de conta: o que só o banco responde é se ele
+ * **sobrevive** à exclusão da conta, que é a parte menos óbvia da decisão.
+ */
+test('o registro de acesso sobrevive à exclusão da conta', { skip }, async () => {
+  const db = await abrir();
+  const users = createUsersService({ db });
+  const accessLog = createAccessLogService({ db, now: () => new Date(AGORA) });
+  const { id } = await users.create({
+    email: email('joana'),
+    passwordHash: 'scrypt$fake',
+    createdAt: AGORA,
+  });
+
+  assert.equal(await accessLog.record({ userId: id, ip: '203.0.113.9' }), true);
+  assert.equal(await accessLog.countForUser(id), 1);
+
+  await users.remove(id);
+
+  // Sessões e aceites vão com a conta (CASCADE); o registro de acesso fica,
+  // porque os seis meses do Marco Civil não dependem de a conta existir. É o
+  // motivo de `user_id` ser TEXT sem chave estrangeira.
+  assert.equal(
+    await accessLog.countForUser(id),
+    1,
+    'o registro de acesso não é apagado com a conta'
+  );
+
+  await db.query(`DELETE FROM access_logs WHERE user_id = $1`, [id]);
+});
+
+test('a faxina apaga só o que passou do prazo', { skip }, async () => {
+  const db = await abrir();
+  const users = createUsersService({ db });
+  const { id } = await users.create({
+    email: email('kaio'),
+    passwordHash: 'scrypt$fake',
+    createdAt: AGORA,
+  });
+
+  const antigo = createAccessLogService({
+    db,
+    now: () => new Date('2026-01-01T00:00:00.000Z'),
+  });
+  const recente = createAccessLogService({ db, now: () => new Date(AGORA) });
+  await antigo.record({ userId: id, ip: '1.1.1.1' });
+  await recente.record({ userId: id, ip: '2.2.2.2' });
+  assert.equal(await recente.countForUser(id), 2);
+
+  // Em 05/11/2026, o limite é 09/05/2026: o de janeiro sai, o de hoje fica.
+  await recente.purge();
+  assert.equal(await recente.countForUser(id), 1);
+
+  await db.query(`DELETE FROM access_logs WHERE user_id = $1`, [id]);
 });

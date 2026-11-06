@@ -5,6 +5,7 @@ import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { LEGAL_VERSIONS } from './config/legal.js';
 import { createDatabase } from './db/database.js';
+import { createAccessLogService } from './services/accessLogService.js';
 import { createAgeService } from './services/ageService.js';
 import { createAuthService } from './services/authService.js';
 import { createCache } from './services/cache.js';
@@ -88,11 +89,35 @@ const ageService = createAgeService({
   timeoutMs: env.upstreamTimeoutMs,
 });
 
+/*
+ * Registro de acesso (ADR-0018): uma linha por login, apagada depois de seis
+ * meses. A faxina roda no boot e uma vez por dia — guardar além do prazo deixa
+ * de ser cumprimento de obrigação legal e passa a ser retenção sem base.
+ */
+const accessLog = createAccessLogService({ db });
+
+async function limparRegistrosAntigos() {
+  try {
+    const apagados = await accessLog.purge();
+    if (apagados > 0) {
+      console.log(
+        `Registro de acesso: ${apagados} linha(s) com mais de 6 meses apagada(s).`
+      );
+    }
+  } catch (error) {
+    console.error('Falha na faxina do registro de acesso:', error.message);
+  }
+}
+
+await limparRegistrosAntigos();
+setInterval(limparRegistrosAntigos, 24 * 60 * 60 * 1000).unref();
+
 const app = createApp({
   videosService,
   authService,
   ageService,
   moderation,
+  accessLog,
   users,
   legalVersions: LEGAL_VERSIONS,
   corsOrigins: env.corsOrigins,

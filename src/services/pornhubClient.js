@@ -14,7 +14,21 @@ const ALLOWED_PARAMS = [
  * Única parte do projeto que fala com a Webmasters API.
  * Usa cache: resposta válida → cache; API falhou → usa a resposta expirada, se houver.
  */
-export function createPornhubClient({ baseUrl, timeoutMs, cache, fetchFn = fetch }) {
+/**
+ * Teto para o uso de resposta expirada (ADR-0018). Até uma hora, dado antigo é
+ * melhor do que erro. Depois disso, não é: um catálogo de uma hora atrás ainda
+ * reflete a origem; de um dia atrás pode listar vídeo que a origem já removeu,
+ * e o motivo da remoção é justamente o que não pode continuar aqui.
+ */
+const MAX_STALE_SECONDS = 3600;
+
+export function createPornhubClient({
+  baseUrl,
+  timeoutMs,
+  cache,
+  maxStaleSeconds = MAX_STALE_SECONDS,
+  fetchFn = fetch,
+}) {
   async function get(endpoint, params = {}) {
     const url = new URL(`${baseUrl.replace(/\/$/, '')}/${endpoint}`);
     for (const key of ALLOWED_PARAMS) {
@@ -38,7 +52,11 @@ export function createPornhubClient({ baseUrl, timeoutMs, cache, fetchFn = fetch
       cache?.set(key, data);
       return data;
     } catch (error) {
-      if (cached) return cached.value; // melhor dado antigo do que erro
+      // Melhor dado antigo do que erro — mas só até o teto (ADR-0018). Acima
+      // dele o cache é descartado, para não ficar servindo para sempre um
+      // catálogo que ninguém mais consegue conferir.
+      if (cached && cached.ageSeconds <= maxStaleSeconds) return cached.value;
+      if (cached) cache?.delete?.(key);
       if (error.name === 'TimeoutError' || error.name === 'AbortError')
         throw upstreamTimeout();
       throw upstreamUnavailable();

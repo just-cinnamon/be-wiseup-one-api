@@ -123,3 +123,74 @@ test('isVideoActive distingue "não existe" de "não consegui perguntar"', async
     'falha na origem é null, e não false: não saber é diferente de não existir'
   );
 });
+
+// ---- Teto do cache expirado (ADR-0018) ----
+
+test('cache expirado serve até o teto; passado dele, é erro', async () => {
+  let clock = 0;
+  let falhar = false;
+  const cache = createCache({ ttlSeconds: 10, now: () => clock });
+  const client = createPornhubClient({
+    baseUrl: 'https://exemplo.test/webmasters/',
+    timeoutMs: 1000,
+    cache,
+    maxStaleSeconds: 3600,
+    fetchFn: async () => {
+      if (falhar) throw new Error('origem fora do ar');
+      return okResponse({ videos: [{ video_id: 'a1' }] });
+    },
+  });
+
+  await client.search({ page: 1 });
+  falhar = true;
+
+  // 59 minutos: o dado é antigo, e ainda descreve a origem.
+  clock = 59 * 60 * 1000;
+  assert.deepEqual(await client.search({ page: 1 }), { videos: [{ video_id: 'a1' }] });
+
+  // 2 horas: é melhor dar erro do que listar para sempre um catálogo que
+  // ninguém consegue conferir — nele pode haver vídeo já removido na origem.
+  clock = 2 * 60 * 60 * 1000;
+  await assert.rejects(() => client.search({ page: 1 }), { status: 502 });
+
+  // E a entrada foi descartada: não fica servindo de novo na chamada seguinte.
+  assert.equal(cache.size, 0);
+});
+
+test('timeout acima do teto é 504, e não dado velho', async () => {
+  let clock = 0;
+  let falhar = false;
+  const cache = createCache({ ttlSeconds: 10, now: () => clock });
+  const client = createPornhubClient({
+    baseUrl: 'https://exemplo.test/webmasters/',
+    timeoutMs: 1000,
+    cache,
+    maxStaleSeconds: 60,
+    fetchFn: async () => {
+      if (falhar) {
+        const erro = new Error('demorou');
+        erro.name = 'TimeoutError';
+        throw erro;
+      }
+      return okResponse({ videos: [] });
+    },
+  });
+
+  await client.search({});
+  falhar = true;
+  clock = 61 * 1000;
+  await assert.rejects(() => client.search({}), { status: 504 });
+});
+
+test('o cache informa a idade da entrada', async () => {
+  let clock = 0;
+  const cache = createCache({ ttlSeconds: 10, now: () => clock });
+  cache.set('k', { a: 1 });
+
+  assert.deepEqual(cache.get('k'), { value: { a: 1 }, fresh: true, ageSeconds: 0 });
+
+  clock = 30_000;
+  const depois = cache.get('k');
+  assert.equal(depois.fresh, false, 'venceu aos 10s');
+  assert.equal(depois.ageSeconds, 30, 'mas a idade é contada desde a gravação');
+});

@@ -5,7 +5,7 @@ import { createRequireAuth } from '../http/requireAuth.js';
  * Rotas de autenticação, montadas em /api/auth (ADR-0011).
  * Cadastro e "esqueci a senha" estão fora do escopo de propósito.
  */
-export function createAuthRoutes({ authService, legalVersions = {} }) {
+export function createAuthRoutes({ authService, accessLog = null, legalVersions = {} }) {
   const router = Router();
   const requireAuth = createRequireAuth({ authService });
 
@@ -15,7 +15,15 @@ export function createAuthRoutes({ authService, legalVersions = {} }) {
   // compartilhado o entregaria para a próxima pessoa.
 
   router.post('/login', async (req, res) => {
-    res.json(await authService.login(req.body));
+    const resultado = await authService.login(req.body);
+
+    // Registro de acesso do Marco Civil (ADR-0018): uma linha por login, com
+    // IP e data. `record` nunca lança — falha no registro não pode impedir
+    // alguém de entrar na conta —, e vem **depois** do login justamente para
+    // tentativa recusada não virar registro de acesso.
+    if (accessLog) await accessLog.record({ userId: resultado.user.id, ip: req.ip });
+
+    res.json(resultado);
   });
 
   // O front chama ao abrir, para saber se o token guardado ainda vale. A

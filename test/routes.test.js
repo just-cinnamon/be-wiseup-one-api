@@ -95,11 +95,19 @@ async function withServer(
   const reports = fakeReports();
   const moderation = createModerationService({ reports, now: () => new Date(AGORA) });
 
+  // Registro de acesso falso (ADR-0018): o teste de rota verifica **quando** o
+  // registro é escrito, não o SQL.
+  const acessos = [];
+  const accessLog = {
+    record: async ({ userId, ip }) => (acessos.push({ userId, ip }), true),
+  };
+
   const app = createApp({
     videosService: fakeVideosService,
     authService,
     ageService,
     moderation,
+    accessLog,
     users,
     legalVersions: LEGAL,
     corsOrigins: ['http://localhost:5173'],
@@ -113,6 +121,7 @@ async function withServer(
       userId: id,
       moderation,
       reports,
+      acessos,
     });
   } finally {
     await new Promise((resolve) => server.close(resolve));
@@ -653,4 +662,29 @@ test('procede sem corpo é improcede: a decisão tem de ser explícita', async (
     },
     { isAdmin: true }
   );
+});
+
+// ---- Registro de acesso (ADR-0018) ----
+
+test('o login grava um registro de acesso; o resto da navegação não', async () => {
+  await withServer(async ({ base, acessos, userId }) => {
+    assert.equal(acessos.length, 0, 'nada antes de entrar');
+
+    await fetch(`${base}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: EMAIL, password: 'qualquer' }),
+    });
+
+    assert.equal(acessos.length, 1);
+    assert.equal(acessos[0].userId, userId);
+    assert.ok(acessos[0].ip, 'o IP de quem chamou vai no registro');
+
+    // Navegar pelo catálogo não gera registro: uma linha por login é registro
+    // de acesso, uma linha por requisição seria rastro de navegação.
+    await fetch(`${base}/api/home`, bearer(VALID_TOKEN));
+    await fetch(`${base}/api/videos?q=qualquer`, bearer(VALID_TOKEN));
+    await fetch(`${base}/api/videos/abc`, bearer(VALID_TOKEN));
+    assert.equal(acessos.length, 1, 'nenhuma requisição de catálogo virou registro');
+  });
 });

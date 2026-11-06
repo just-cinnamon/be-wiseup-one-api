@@ -84,3 +84,21 @@ CREATE TABLE IF NOT EXISTS blocked_videos (
 -- Quem pode analisar denúncia. Marcado à mão no banco: não existe rota que
 -- promova ninguém a administrador.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Registro de acesso (ADR-0018), exigido pelo Marco Civil da Internet
+-- (art. 15): quem entrou e quando. É gravado **só no login**, nunca por
+-- requisição, e não guarda o que foi buscado nem o que foi assistido.
+--
+-- `user_id` é TEXT sem chave estrangeira **de propósito**: o registro tem de
+-- sobreviver à exclusão da conta pelos seis meses da lei. Com REFERENCES, ou o
+-- CASCADE apagaria o registro, ou o SET NULL o deixaria sem dizer quem acessou
+-- — e aí ele não serviria para nada.
+CREATE TABLE IF NOT EXISTS access_logs (
+  id          BIGSERIAL PRIMARY KEY,
+  user_id     TEXT NOT NULL,
+  ip          TEXT,
+  accessed_at TEXT NOT NULL
+);
+
+-- Serve a faxina diária, que apaga por data.
+CREATE INDEX IF NOT EXISTS idx_access_logs_date ON access_logs(accessed_at);

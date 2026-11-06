@@ -19,6 +19,7 @@ export function createRoutes({
   authService,
   ageService,
   moderation,
+  accessLog,
   users,
   legalVersions = {},
 }) {
@@ -47,7 +48,7 @@ export function createRoutes({
 
   // Também aberta, por necessidade: é por aqui que se consegue a sessão. Estas
   // rotas trazem o próprio Cache-Control: no-store, posto em app.js.
-  router.use('/auth', createAuthRoutes({ authService, legalVersions }));
+  router.use('/auth', createAuthRoutes({ authService, accessLog, legalVersions }));
 
   // A verificação de idade fica **antes** do requireAdult, e cuida da própria
   // autenticação por rota (ADR-0015): exigir idade verificada para poder

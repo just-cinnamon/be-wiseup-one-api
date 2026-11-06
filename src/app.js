@@ -9,6 +9,7 @@ export function createApp({
   authService,
   ageService,
   moderation,
+  accessLog,
   users,
   legalVersions,
   corsOrigins,
@@ -16,6 +17,17 @@ export function createApp({
   const app = express();
 
   app.disable('x-powered-by');
+
+  /*
+   * Um salto de proxy à frente (o do provedor de hospedagem), para `req.ip`
+   * ser o IP de quem chamou e não o do proxy — o registro de acesso
+   * (ADR-0018) depende disso para valer algo.
+   *
+   * `1`, e não `true`: confiar em toda a cadeia deixaria qualquer cliente
+   * escrever o próprio `X-Forwarded-For` e escolher o IP que vai para o
+   * registro.
+   */
+  app.set('trust proxy', 1);
   // POST e DELETE entraram com as rotas de /api/auth (ADR-0011); até a ADR-0007
   // só havia GET. O resto da API continua só com GET.
   app.use(
@@ -66,6 +78,7 @@ export function createApp({
       authService,
       ageService,
       moderation,
+      accessLog,
       users,
       legalVersions,
     })

@@ -1,8 +1,14 @@
--- Esquema do banco (ADR-0011). Executado no boot, sempre com IF NOT EXISTS:
--- não há migration, então o arquivo precisa ser idempotente.
+-- Esquema do banco (ADR-0013). Executado no boot, sempre com IF NOT EXISTS:
+-- não há ferramenta de migration, então o arquivo precisa ser idempotente.
 --
 -- Só contas e sessões moram aqui. Catálogo, miniatura e histórico de uso
 -- continuam fora do banco, como manda a ADR-0004.
+--
+-- As colunas de data são TEXT com ISO 8601 em UTC, e não TIMESTAMPTZ, por um
+-- motivo prático: o código compara essas datas como string em vários lugares
+-- (`expires_at <= nowIso`), e ISO 8601 em UTC ordena igual como texto e como
+-- data. Com TIMESTAMPTZ o driver devolveria `Date`, e a comparação mudaria de
+-- forma em todo o serviço sem ganho nenhum aqui.
 
 CREATE TABLE IF NOT EXISTS users (
   id            TEXT PRIMARY KEY,         -- crypto.randomUUID()
@@ -21,3 +27,4 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);

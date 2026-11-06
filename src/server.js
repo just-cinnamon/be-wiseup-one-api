@@ -3,7 +3,7 @@
 import './config/checkNode.js';
 import { createApp } from './app.js';
 import { env } from './config/env.js';
-import { openDatabase } from './db/database.js';
+import { createDatabase } from './db/database.js';
 import { createAuthService } from './services/authService.js';
 import { createCache } from './services/cache.js';
 import { createCaptchaService } from './services/captchaService.js';
@@ -19,27 +19,45 @@ const client = createPornhubClient({
 });
 const videosService = createVideosService({ client });
 
-// Autenticação (ADR-0011).
-const db = openDatabase(env.databaseFile);
+// Banco (ADR-0013) e autenticação (ADR-0011).
+const db = createDatabase({
+  connectionString: env.databaseUrl,
+  sslInsecure: env.databaseSslInsecure,
+});
+await db.applySchema();
+
 const users = createUsersService({ db });
 const captchaService = createCaptchaService({
   secret: env.recaptchaSecret,
   timeoutMs: env.upstreamTimeoutMs,
   isProduction: env.isProduction,
 });
+
+// O captcha só é exigido quando há secret para conferi-lo (ADR-0014). Sem ele,
+// o aviso é alto de propósito: a única barreira contra força bruta passa a ser
+// o bloqueio por conta.
+const captchaRequired = Boolean(env.recaptchaSecret);
+if (!captchaRequired) {
+  console.warn(
+    `AVISO: sem RECAPTCHA_SECRET, o login não pede captcha. Força bruta é contida só pelo bloqueio por conta (${env.loginMaxAttempts} tentativas, ${env.loginLockMinutes} min).`
+  );
+}
+
 const authService = createAuthService({
   users,
   captchaService,
+  captchaRequired,
   sessionTtlHours: env.sessionTtlHours,
   maxAttempts: env.loginMaxAttempts,
   lockMinutes: env.loginLockMinutes,
 });
 
-// O disco do Render é efêmero: sem semear no boot, o login morre a cada deploy.
+// As contas de SEED_USERS continuam sendo criadas no boot, agora só para o
+// banco nascer utilizável — com Postgres elas sobrevivem ao deploy (ADR-0013).
 // O log conta quantas contas entraram, nunca quais.
 const created = await authService.seedUsers(env.seedUsers);
 console.log(
-  `Banco em ${env.databaseFile}: ${env.seedUsers.length} conta(s) em SEED_USERS, ${created} criada(s) agora.`
+  `Banco conectado: ${env.seedUsers.length} conta(s) em SEED_USERS, ${created} criada(s) agora.`
 );
 
 const app = createApp({ videosService, authService, corsOrigins: env.corsOrigins });
@@ -50,8 +68,8 @@ app.listen(env.port, () => {
 
 // Fecha o banco no encerramento, para o WAL não ficar com escrita pendente.
 for (const signal of ['SIGINT', 'SIGTERM']) {
-  process.on(signal, () => {
-    db.close();
+  process.on(signal, async () => {
+    await db.close();
     process.exit(0);
   });
 }

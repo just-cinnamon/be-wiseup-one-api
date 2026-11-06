@@ -1,20 +1,24 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { openDatabase } from '../src/db/database.js';
 import { createAuthService } from '../src/services/authService.js';
-import { createUsersService } from '../src/services/usersService.js';
+import { fakeUsers } from './helpers.js';
 
 const SENHA = 'segredo123';
 const EMAIL = 'ana@wiseup.test';
 const CAPTCHA = 'x'.repeat(300);
 
 /**
- * Monta o serviço com banco em memória, captcha falso e relógio controlado.
- * `captcha` decide o que o siteverify responderia; `clock` move o tempo.
+ * Monta o serviço com `users` falso em memória, captcha falso e relógio
+ * controlado (ADR-0005). `captcha` decide o que o siteverify responderia;
+ * `captchaRequired` liga a exigência do token, como faz o RECAPTCHA_SECRET.
  */
-async function setup({ captcha = true, lockMinutes = 15, maxAttempts = 5 } = {}) {
-  const db = openDatabase(':memory:');
-  const users = createUsersService({ db });
+async function setup({
+  captcha = true,
+  captchaRequired = true,
+  lockMinutes = 15,
+  maxAttempts = 5,
+} = {}) {
+  const users = fakeUsers();
   let current = new Date('2026-11-05T12:00:00.000Z');
   const captchaCalls = [];
 
@@ -23,6 +27,7 @@ async function setup({ captcha = true, lockMinutes = 15, maxAttempts = 5 } = {})
     captchaService: {
       verify: async (token) => (captchaCalls.push(token), captcha),
     },
+    captchaRequired,
     sessionTtlHours: 12,
     maxAttempts,
     lockMinutes,
@@ -32,7 +37,6 @@ async function setup({ captcha = true, lockMinutes = 15, maxAttempts = 5 } = {})
   await authService.seedUsers([{ email: EMAIL, password: SENHA }]);
 
   return {
-    db,
     users,
     authService,
     captchaCalls,
@@ -55,19 +59,19 @@ async function erroDe(fn) {
 
 test('seedUsers cria as contas uma vez só', async () => {
   const { authService, users } = await setup();
-  assert.ok(users.findByEmail(EMAIL));
+  assert.ok(await users.findByEmail(EMAIL));
 
   const criadas = await authService.seedUsers([
     { email: EMAIL, password: SENHA },
     { email: 'bia@wiseup.test', password: 'outra456' },
   ]);
   assert.equal(criadas, 1, 'só a conta que faltava');
-  assert.ok(users.findByEmail('bia@wiseup.test'));
+  assert.ok(await users.findByEmail('bia@wiseup.test'));
 });
 
 test('a senha não é guardada em claro', async () => {
   const { users } = await setup();
-  const user = users.findByEmail(EMAIL);
+  const user = await users.findByEmail(EMAIL);
   assert.ok(user.password_hash.startsWith('scrypt$'));
   assert.ok(!user.password_hash.includes(SENHA));
 });
@@ -138,6 +142,28 @@ test('formato inválido é recusado antes do captcha', async () => {
   assert.equal(captchaCalls.length, 0, 'não chega a chamar o captcha');
 });
 
+test('sem RECAPTCHA_SECRET o login não pede captcha, e nem o consulta', async () => {
+  const { authService, captchaCalls } = await setup({ captchaRequired: false });
+
+  const result = await authService.login({ email: EMAIL, password: SENHA });
+  assert.equal(result.user.email, EMAIL);
+  assert.equal(captchaCalls.length, 0, 'não há secret: não há o que conferir');
+
+  // Um token enviado à toa é ignorado, mas tamanho absurdo continua recusado.
+  const comToken = await authService.login({
+    email: EMAIL,
+    password: SENHA,
+    captchaToken: CAPTCHA,
+  });
+  assert.ok(comToken.token);
+  assert.equal(captchaCalls.length, 0);
+
+  const erro = await erroDe(() =>
+    authService.login({ email: EMAIL, password: SENHA, captchaToken: 'x'.repeat(4001) })
+  );
+  assert.equal(erro.code, 'INVALID_PARAMS');
+});
+
 test('bloqueia no 5º erro e libera depois do prazo', async () => {
   const { login, avanca } = await setup();
 
@@ -170,10 +196,10 @@ test('login certo zera o contador de erros', async () => {
 
   await erroDe(() => login({ password: 'errada!!' }));
   await erroDe(() => login({ password: 'errada!!' }));
-  assert.equal(Number(users.findByEmail(EMAIL).failed_count), 2);
+  assert.equal(Number((await users.findByEmail(EMAIL)).failed_count), 2);
 
   await login({ password: SENHA });
-  const user = users.findByEmail(EMAIL);
+  const user = await users.findByEmail(EMAIL);
   assert.equal(Number(user.failed_count), 0);
   assert.equal(user.locked_until, null);
 });
@@ -182,7 +208,10 @@ test('token válido vira usuário; token inválido dá 401', async () => {
   const { login, authService } = await setup();
   const { token, user } = await login({ password: SENHA });
 
-  assert.deepEqual(authService.getSessionUser(token), { id: user.id, email: EMAIL });
+  assert.deepEqual(await authService.getSessionUser(token), {
+    id: user.id,
+    email: EMAIL,
+  });
 
   for (const ruim of ['', 'curto', `${token}x`, null, undefined, 'y'.repeat(201)]) {
     const erro = await erroDe(async () => authService.getSessionUser(ruim));
@@ -192,12 +221,12 @@ test('token válido vira usuário; token inválido dá 401', async () => {
 });
 
 test('o token guardado no banco é o sha256, não o original', async () => {
-  const { login, db } = await setup();
+  const { login, users } = await setup();
   const { token } = await login({ password: SENHA });
 
-  const linha = db.prepare('SELECT token_hash FROM sessions').get();
-  assert.notEqual(linha.token_hash, token);
-  assert.match(linha.token_hash, /^[0-9a-f]{64}$/);
+  const [tokenHash] = [...users.sessions.keys()];
+  assert.notEqual(tokenHash, token);
+  assert.match(tokenHash, /^[0-9a-f]{64}$/);
 });
 
 test('logout invalida a sessão e não mexe nas outras', async () => {
@@ -205,33 +234,33 @@ test('logout invalida a sessão e não mexe nas outras', async () => {
   const primeira = await login({ password: SENHA });
   const segunda = await login({ password: SENHA });
 
-  assert.equal(authService.logout(primeira.token), true);
+  assert.equal(await authService.logout(primeira.token), true);
   const erro = await erroDe(async () => authService.getSessionUser(primeira.token));
   assert.equal(erro.status, 401);
 
   // A outra sessão do mesmo usuário continua de pé.
-  assert.equal(authService.getSessionUser(segunda.token).email, EMAIL);
+  assert.equal((await authService.getSessionUser(segunda.token)).email, EMAIL);
   // Repetir o logout não quebra, só não acha nada para apagar.
-  assert.equal(authService.logout(primeira.token), false);
+  assert.equal(await authService.logout(primeira.token), false);
 });
 
 test('sessão expirada é recusada e sai do banco', async () => {
-  const { login, authService, avanca, db } = await setup();
+  const { login, authService, avanca, users } = await setup();
   const { token } = await login({ password: SENHA });
 
   avanca(12 * 60 + 1); // TTL de 12 horas
   const erro = await erroDe(async () => authService.getSessionUser(token));
   assert.equal(erro.status, 401);
-  assert.equal(db.prepare('SELECT COUNT(*) AS total FROM sessions').get().total, 0);
+  assert.equal(users.sessions.size, 0);
 });
 
 test('excluir a conta apaga as sessões junto', async () => {
-  const { login, authService, users, db } = await setup();
+  const { login, authService, users } = await setup();
   const { token, user } = await login({ password: SENHA });
 
-  assert.equal(authService.deleteAccount(user.id), true);
-  assert.equal(users.findByEmail(EMAIL), undefined);
-  assert.equal(db.prepare('SELECT COUNT(*) AS total FROM sessions').get().total, 0);
+  assert.equal(await authService.deleteAccount(user.id), true);
+  assert.equal(await users.findByEmail(EMAIL), undefined);
+  assert.equal(users.sessions.size, 0);
 
   const erro = await erroDe(async () => authService.getSessionUser(token));
   assert.equal(erro.status, 401);

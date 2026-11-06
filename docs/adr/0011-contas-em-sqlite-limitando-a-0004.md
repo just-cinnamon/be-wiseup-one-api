@@ -1,6 +1,10 @@
 # ADR-0011 — Guardar contas em SQLite, limitando a ADR-0004
 
-- **Status:** aceita
+- **Status:** aceita, **parcialmente substituída** — o armazenamento passou a
+  Postgres pela [ADR-0013](0013-postgres-gerenciado-no-lugar-do-sqlite.md), e a
+  exigência do captcha virou condicional pela
+  [ADR-0014](0014-captcha-exigido-so-com-secret.md). O resto continua valendo:
+  contas em banco, scrypt, token opaco em tabela e a ordem do login
 - **Data:** 2026-11-05
 - **Fase do projeto:** Fase 6 — Autenticação real
 

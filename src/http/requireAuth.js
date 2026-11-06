@@ -8,13 +8,13 @@ import { unauthorized } from './errors.js';
  * não há try/catch (ADR-0003).
  */
 export function createRequireAuth({ authService }) {
-  return function requireAuth(req, res, next) {
+  return async function requireAuth(req, res, next) {
     const [scheme, token] = (req.get('authorization') ?? '').split(' ');
 
     if (!scheme || scheme.toLowerCase() !== 'bearer' || !token)
       return next(unauthorized('Faça login para continuar.'));
 
-    req.user = authService.getSessionUser(token);
+    req.user = await authService.getSessionUser(token);
     req.token = token;
     next();
   };

@@ -23,11 +23,17 @@ const SESSION_TOKEN_BYTES = 32;
 
 /**
  * Regras de login, sessão e bloqueio — sem nada de Express (ADR-0005).
- * Nos testes recebe um banco em memória, um captcha falso e um relógio fixo.
+ * Nos testes recebe um `users` falso, um captcha falso e um relógio fixo.
+ *
+ * `captchaRequired` vem de fora (ADR-0014): o token do reCAPTCHA só é exigido
+ * quando existe RECAPTCHA_SECRET para conferi-lo. Sem secret, exigir um token
+ * que ninguém verifica seria teatro, e recusar todo login deixaria o site
+ * inacessível. Nos dois casos, quem segura força bruta é o bloqueio por conta.
  */
 export function createAuthService({
   users,
   captchaService,
+  captchaRequired = false,
   sessionTtlHours = 12,
   maxAttempts = 5,
   lockMinutes = 15,
@@ -49,20 +55,22 @@ export function createAuthService({
       throw invalidParams(
         `A senha deve ter de ${PASSWORD_MIN} a ${PASSWORD_MAX} caracteres.`
       );
-    if (!captchaToken || captchaToken.length > CAPTCHA_MAX)
+    // O comprimento máximo vale sempre: campo grande no corpo é entrada
+    // hostil, mesmo com o captcha desligado.
+    if (captchaToken.length > CAPTCHA_MAX || (captchaRequired && !captchaToken))
       throw invalidParams('Confirme que você não é um robô.');
 
     return { email, password, captchaToken };
   }
 
   /** Cria a sessão e devolve o token em claro — que só o front vai ter. */
-  function startSession(user, current) {
+  async function startSession(user, current) {
     const token = randomBytes(SESSION_TOKEN_BYTES).toString('base64url');
     const expiresAt = new Date(
       current.getTime() + sessionTtlHours * 60 * 60 * 1000
     ).toISOString();
 
-    users.createSession({
+    await users.createSession({
       tokenHash: sha256(token),
       userId: user.id,
       createdAt: current.toISOString(),
@@ -81,10 +89,11 @@ export function createAuthService({
     async login(body) {
       const { email, password, captchaToken } = parseCredentials(body);
 
-      if (!(await captchaService.verify(captchaToken))) throw captchaFailed();
+      if (captchaRequired && !(await captchaService.verify(captchaToken)))
+        throw captchaFailed();
 
       const current = now();
-      const user = users.findByEmail(email);
+      const user = await users.findByEmail(email);
 
       if (!user) {
         // Gasta o tempo de um scrypt para o relógio não revelar que este
@@ -102,7 +111,7 @@ export function createAuthService({
       if (!(await verify(password, user.password_hash))) {
         const failedCount = failedBefore + 1;
         const reachedLimit = failedCount >= maxAttempts;
-        users.setLockState(user.id, {
+        await users.setLockState(user.id, {
           failedCount,
           lockedUntil: reachedLimit
             ? new Date(current.getTime() + lockMinutes * 60 * 1000).toISOString()
@@ -112,13 +121,13 @@ export function createAuthService({
       }
 
       if (failedBefore > 0 || lockedUntil)
-        users.setLockState(user.id, { failedCount: 0, lockedUntil: null });
+        await users.setLockState(user.id, { failedCount: 0, lockedUntil: null });
 
       return startSession(user, current);
     },
 
     /** Token do header vira `{ id, email }`, ou 401. Usado pelo requireAuth. */
-    getSessionUser(token) {
+    async getSessionUser(token) {
       if (
         typeof token !== 'string' ||
         token.length < TOKEN_MIN ||
@@ -127,22 +136,22 @@ export function createAuthService({
         throw unauthorized('Sessão inválida. Entre novamente.');
 
       const nowIso = now().toISOString();
-      users.removeExpiredSessions(nowIso);
+      await users.removeExpiredSessions(nowIso);
 
-      const session = users.findSession(sha256(token));
+      const session = await users.findSession(sha256(token));
       if (!session || session.expires_at <= nowIso) throw unauthorized();
 
       return { id: session.id, email: session.email };
     },
 
     /** Apaga a linha em `sessions`: é o que um JWT não permitiria. */
-    logout(token) {
+    async logout(token) {
       if (typeof token !== 'string') return false;
       return users.removeSession(sha256(token));
     },
 
     /** Apaga a conta e, por cascata, as sessões. Requisito de LGPD. */
-    deleteAccount(userId) {
+    async deleteAccount(userId) {
       return users.remove(userId);
     },
 
@@ -154,8 +163,8 @@ export function createAuthService({
     async seedUsers(entries = []) {
       let created = 0;
       for (const entry of entries) {
-        if (users.findByEmail(entry.email)) continue;
-        users.create({
+        if (await users.findByEmail(entry.email)) continue;
+        await users.create({
           email: entry.email,
           passwordHash: await hash(entry.password),
           createdAt: now().toISOString(),

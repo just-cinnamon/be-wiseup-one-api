@@ -23,14 +23,14 @@ export function createAuthRoutes({ authService }) {
     res.json({ user: req.user });
   });
 
-  router.post('/logout', requireAuth, (req, res) => {
-    authService.logout(req.token);
+  router.post('/logout', requireAuth, async (req, res) => {
+    await authService.logout(req.token);
     res.json({ ok: true });
   });
 
   // Direito de exclusão (LGPD): apaga a conta e todas as sessões dela.
-  router.delete('/me', requireAuth, (req, res) => {
-    authService.deleteAccount(req.user.id);
+  router.delete('/me', requireAuth, async (req, res) => {
+    await authService.deleteAccount(req.user.id);
     res.json({ ok: true });
   });
 

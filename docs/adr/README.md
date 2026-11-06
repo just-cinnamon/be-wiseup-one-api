@@ -26,6 +26,8 @@ vencido quando a API externa falha, ou por que o banner da Home fica borrado.
 | [0010](0010-deploy-no-render-fora-dos-eua.md) | Deploy no Render, em região fora dos Estados Unidos | Aceita | 2026-11-05 |
 | [0011](0011-contas-em-sqlite-limitando-a-0004.md) | Guardar contas em SQLite, limitando a ADR-0004 | Aceita | 2026-11-05 |
 | [0012](0012-catalogo-exige-sessao.md) | O catálogo só responde com sessão, e o app não sobe sem autenticação | Aceita | 2026-11-05 |
+| [0013](0013-postgres-gerenciado-no-lugar-do-sqlite.md) | Postgres gerenciado no lugar do `node:sqlite` | Aceita | 2026-11-05 |
+| [0014](0014-captcha-exigido-so-com-secret.md) | O captcha é exigido só quando há secret para conferi-lo | Aceita | 2026-11-05 |
 
 ## Como criar uma nova ADR
 

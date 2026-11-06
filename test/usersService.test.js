@@ -1,0 +1,165 @@
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { after, test } from 'node:test';
+import { createDatabase } from '../src/db/database.js';
+import { createUsersService } from '../src/services/usersService.js';
+
+/*
+ * O SQL de verdade, contra um Postgres de verdade (ADR-0013).
+ *
+ * Roda só quando existe TEST_DATABASE_URL — num banco de teste, porque apaga o
+ * que cria. Sem a variável, os testes são pulados em vez de falharem: ninguém
+ * deve precisar de um servidor de banco de pé para rodar `npm test`.
+ *
+ * O que é regra de negócio (bloqueio, captcha, validade de sessão) está em
+ * `authService.test.js`, com o `users` falso de `helpers.js`.
+ *
+ *   docker run -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgres:17
+ *   TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres npm test
+ */
+
+const url = process.env.TEST_DATABASE_URL;
+const skip = url ? false : 'defina TEST_DATABASE_URL para exercitar o SQL';
+
+// Prefixo por execução: duas rodadas em paralelo não se atrapalham, e sobra
+// identificável se algo falhar no meio.
+const PREFIXO = `teste-${randomUUID().slice(0, 8)}`;
+const email = (nome) => `${PREFIXO}-${nome}@wiseup.test`;
+
+let db = null;
+const abrir = async () => {
+  if (!db) {
+    db = createDatabase({ connectionString: url, max: 2 });
+    await db.applySchema();
+  }
+  return db;
+};
+
+after(async () => {
+  if (!db) return;
+  // As sessões vão junto, por ON DELETE CASCADE — que é justamente o que o
+  // último teste confere.
+  await db.query('DELETE FROM users WHERE email LIKE $1', [`${PREFIXO}-%`]);
+  await db.close();
+});
+
+test('cria a conta e acha pelo e-mail', { skip }, async () => {
+  const users = createUsersService({ db: await abrir() });
+  const criado = await users.create({
+    email: email('ana'),
+    passwordHash: 'scrypt$fake',
+    createdAt: '2026-11-05T12:00:00.000Z',
+  });
+
+  const achado = await users.findByEmail(email('ana'));
+  assert.equal(achado.id, criado.id);
+  assert.equal(achado.failed_count, 0);
+  assert.equal(achado.locked_until, null);
+  assert.equal(await users.findByEmail(email('ninguem')), undefined);
+});
+
+test('o UNIQUE de e-mail é do banco, não da aplicação', { skip }, async () => {
+  const users = createUsersService({ db: await abrir() });
+  const dados = {
+    email: email('bia'),
+    passwordHash: 'scrypt$fake',
+    createdAt: '2026-11-05T12:00:00.000Z',
+  };
+  await users.create(dados);
+
+  // Duas requisições simultâneas passariam juntas por um `if` na aplicação; o
+  // UNIQUE não deixa, e é por isso que ele existe.
+  await assert.rejects(() => users.create(dados), /duplicate key|unique/i);
+});
+
+test('o bloqueio é gravado e lido como ISO 8601', { skip }, async () => {
+  const users = createUsersService({ db: await abrir() });
+  const { id } = await users.create({
+    email: email('cadu'),
+    passwordHash: 'scrypt$fake',
+    createdAt: '2026-11-05T12:00:00.000Z',
+  });
+
+  await users.setLockState(id, {
+    failedCount: 5,
+    lockedUntil: '2026-11-05T12:15:00.000Z',
+  });
+  const bloqueado = await users.findByEmail(email('cadu'));
+  assert.equal(Number(bloqueado.failed_count), 5);
+  assert.equal(bloqueado.locked_until, '2026-11-05T12:15:00.000Z');
+
+  await users.setLockState(id, { failedCount: 0, lockedUntil: null });
+  const liberado = await users.findByEmail(email('cadu'));
+  assert.equal(liberado.locked_until, null);
+});
+
+test('sessão: cria, acha com o e-mail junto, apaga', { skip }, async () => {
+  const users = createUsersService({ db: await abrir() });
+  const { id } = await users.create({
+    email: email('dani'),
+    passwordHash: 'scrypt$fake',
+    createdAt: '2026-11-05T12:00:00.000Z',
+  });
+
+  await users.createSession({
+    tokenHash: 'a'.repeat(64),
+    userId: id,
+    createdAt: '2026-11-05T12:00:00.000Z',
+    expiresAt: '2026-11-06T00:00:00.000Z',
+  });
+
+  const sessao = await users.findSession('a'.repeat(64));
+  assert.equal(sessao.email, email('dani'));
+  assert.equal(sessao.expires_at, '2026-11-06T00:00:00.000Z');
+
+  assert.equal(await users.removeSession('a'.repeat(64)), true);
+  assert.equal(await users.removeSession('a'.repeat(64)), false);
+  assert.equal(await users.findSession('a'.repeat(64)), undefined);
+});
+
+test('a faxina apaga só o que já venceu', { skip }, async () => {
+  const users = createUsersService({ db: await abrir() });
+  const { id } = await users.create({
+    email: email('edu'),
+    passwordHash: 'scrypt$fake',
+    createdAt: '2026-11-05T12:00:00.000Z',
+  });
+
+  const sessao = (hash, expiresAt) =>
+    users.createSession({
+      tokenHash: hash,
+      userId: id,
+      createdAt: '2026-11-05T12:00:00.000Z',
+      expiresAt,
+    });
+
+  await sessao('b'.repeat(64), '2026-11-05T11:00:00.000Z'); // vencida
+  await sessao('c'.repeat(64), '2026-11-06T00:00:00.000Z'); // válida
+
+  const apagadas = await users.removeExpiredSessions('2026-11-05T12:00:00.000Z');
+  assert.equal(apagadas, 1);
+  assert.equal(await users.findSession('b'.repeat(64)), undefined);
+  assert.ok(await users.findSession('c'.repeat(64)));
+});
+
+test('apagar a conta leva as sessões por cascata', { skip }, async () => {
+  const users = createUsersService({ db: await abrir() });
+  const { id } = await users.create({
+    email: email('fabi'),
+    passwordHash: 'scrypt$fake',
+    createdAt: '2026-11-05T12:00:00.000Z',
+  });
+  await users.createSession({
+    tokenHash: 'd'.repeat(64),
+    userId: id,
+    createdAt: '2026-11-05T12:00:00.000Z',
+    expiresAt: '2026-11-06T00:00:00.000Z',
+  });
+
+  assert.equal(await users.remove(id), true);
+  assert.equal(await users.findByEmail(email('fabi')), undefined);
+  // Sem o ON DELETE CASCADE do schema, esta linha continuaria no banco
+  // apontando para uma conta que não existe mais.
+  assert.equal(await users.findSession('d'.repeat(64)), undefined);
+  assert.equal(await users.remove(id), false);
+});

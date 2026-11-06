@@ -38,8 +38,14 @@ export const env = {
   upstreamTimeoutMs: toInt(process.env.UPSTREAM_TIMEOUT_MS, 8000),
   cacheTtlSeconds: toInt(process.env.CACHE_TTL_SECONDS, 600),
 
+  // Banco (ADR-0013): Postgres gerenciado, no lugar do arquivo SQLite que o
+  // disco efêmero do Render apagava a cada deploy.
+  databaseUrl: (process.env.DATABASE_URL ?? '').trim(),
+  // Só para provedor com certificado próprio. Ligado, deixa de validar o
+  // certificado do servidor — escolha explícita, nunca o padrão.
+  databaseSslInsecure: process.env.DATABASE_SSL_INSECURE === 'true',
+
   // Autenticação (ADR-0011)
-  databaseFile: process.env.DATABASE_FILE ?? 'data/wiseup.db',
   recaptchaSecret: (process.env.RECAPTCHA_SECRET ?? '').trim(),
   sessionTtlHours: toInt(process.env.SESSION_TTL_HOURS, 12),
   loginMaxAttempts: toInt(process.env.LOGIN_MAX_ATTEMPTS, 5),
